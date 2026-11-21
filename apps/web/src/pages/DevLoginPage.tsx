@@ -11,7 +11,7 @@ export function DevLoginPage() {
     setError(null);
     try {
       const r = await api<{ accessToken: string }>("/dev/auth/token", { method: "POST", body: { subject } });
-      session.set(r.accessToken);
+      session.set(r.accessToken, subject);
     } catch (e) {
       setError(e instanceof ApiRequestError ? e.message : "Sign-in failed.");
     }

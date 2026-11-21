@@ -7,10 +7,7 @@ import { OrgPickerPage } from "./pages/OrgPickerPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { JobsPage } from "./pages/JobsPage";
 import { JobDetailPage } from "./pages/JobDetailPage";
-import { ReceiptsPage } from "./pages/ReceiptsPage";
-import { VehiclesPage } from "./pages/VehiclesPage";
-import { VehicleDetailPage } from "./pages/VehicleDetailPage";
-import { EmployeesPage } from "./pages/EmployeesPage";
+import { PhotoSearchPage } from "./pages/PhotoSearchPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
 function useSignedIn() {
@@ -27,14 +24,10 @@ export function App() {
         <Route index element={<DashboardPage />} />
         <Route path="jobs" element={<JobsPage />} />
         <Route path="jobs/:jobId" element={<JobDetailPage />} />
-        <Route path="receipts" element={<ReceiptsPage />} />
-        <Route path="vehicles" element={<VehiclesPage />} />
-        <Route path="vehicles/:vehicleId" element={<VehicleDetailPage />} />
-        <Route path="employees" element={<EmployeesPage />} />
+        <Route path="photos" element={<PhotoSearchPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }
-
