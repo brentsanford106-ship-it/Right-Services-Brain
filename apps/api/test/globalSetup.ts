@@ -13,6 +13,7 @@ import path from "node:path";
  */
 let adminUrl = "";
 let dbName = "";
+let appUser = "";
 
 declare module "vitest" {
   export interface ProvidedContext {
@@ -27,14 +28,16 @@ export async function setup(project: TestProject): Promise<void> {
   adminUrl = process.env.TEST_DATABASE_ADMIN_URL ?? process.env.DATABASE_ADMIN_URL ?? "";
   if (!adminUrl) throw new Error("Set TEST_DATABASE_ADMIN_URL (or DATABASE_ADMIN_URL) to a local PostgreSQL admin connection");
 
-  dbName = `rsb_test_${Date.now()}_${randomBytes(3).toString("hex")}`;
+  const runId = `${Date.now()}_${randomBytes(3).toString("hex")}`;
+  dbName = `rsb_test_${runId}`;
+  // Logins are server-wide in PostgreSQL, so each run gets its own; parallel runs can't reset each other's password.
+  appUser = `rsb_test_login_${runId}`;
   const server = new pg.Client({ connectionString: adminUrl });
   await server.connect();
   await server.query(`CREATE DATABASE ${dbName}`); // name is generated above, not user input
   await server.end();
 
   const testAdminUrl = withDatabase(adminUrl, dbName);
-  const appUser = "rsb_test_app_login";
   const appPassword = randomBytes(24).toString("hex");
   const admin = new pg.Client({ connectionString: testAdminUrl });
   await admin.connect();
@@ -55,6 +58,7 @@ export async function teardown(): Promise<void> {
   const server = new pg.Client({ connectionString: adminUrl });
   await server.connect();
   await server.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`);
+  if (appUser) await server.query(`DROP ROLE IF EXISTS ${appUser}`); // generated above, not user input
   await server.end();
 }
 
