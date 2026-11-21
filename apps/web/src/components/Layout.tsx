@@ -1,11 +1,16 @@
+import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet } from "react-router-dom";
+import type { MeResponse } from "@rsb/contracts";
 import { useOrgContext, useOrgId } from "../lib/hooks";
-import { session } from "../lib/api";
+import { api, session } from "../lib/api";
 import { DevBanner, Status } from "./ui";
 
 export function Layout() {
   const orgId = useOrgId();
   const ctx = useOrgContext();
+  // Most people belong to one company; only show the switcher to someone who belongs to several.
+  const me = useQuery({ queryKey: ["me"], queryFn: () => api<MeResponse>("/v1/me") });
+  const manyCompanies = (me.data?.memberships?.length ?? 0) > 1;
   const nav = [
     { to: "", label: "Overview" },
     { to: "jobs", label: "Jobs" },
@@ -25,7 +30,7 @@ export function Layout() {
         {nav.map((n) => (
           <NavLink key={n.to} to={`/orgs/${orgId}/${n.to}`} end={n.to === ""}>{n.label}</NavLink>
         ))}
-        <NavLink to="/">Switch company</NavLink>
+        {manyCompanies && <NavLink to="/">Switch company</NavLink>}
       </nav>
       <main className="content">
         <Status query={ctx}>{() => <Outlet />}</Status>
