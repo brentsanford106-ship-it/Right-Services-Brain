@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import { ApiError, NetworkError, OwnerMismatchError } from "@rsb/photo-sync";
 import { fetch as expoFetch } from "expo/fetch";
 import { useApp } from "../src/state";
-import { Button, C, DevBanner, s } from "../src/ui";
+import { Button, C, DevBanner, Logo, s } from "../src/ui";
 
 interface DevUser {
   subject: string;
@@ -105,6 +105,9 @@ export default function Login() {
         contentContainerStyle={{ padding: 16, paddingBottom: 48 }}
         ListHeaderComponent={
           <View>
+            <View style={{ alignItems: "center", backgroundColor: "#fff", borderRadius: 14, paddingVertical: 14, marginBottom: 20 }}>
+              <Logo height={72} />
+            </View>
             <Text style={s.h1}>Development sign-in</Text>
             <Text style={[s.muted, { marginTop: 6 }]}>Pick a made-up test person. This is only for testing and is not secure.</Text>
             <Text style={[s.label, { marginTop: 18 }]}>Server address (your PC)</Text>

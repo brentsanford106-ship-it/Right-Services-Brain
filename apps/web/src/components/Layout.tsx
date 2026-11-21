@@ -22,6 +22,7 @@ export function Layout() {
     <div className="shell">
       <DevBanner />
       <header className="topbar">
+        <img src="/favicon.png" alt="Right Services" className="logo-mark" />
         <strong>{ctx.data?.organization.name ?? "…"}</strong>
         <span className="muted">{ctx.data?.roles.join(", ")}</span>
         <button className="link" onClick={() => session.set(null)}>Sign out</button>

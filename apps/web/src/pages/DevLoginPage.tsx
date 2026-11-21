@@ -20,6 +20,7 @@ export function DevLoginPage() {
     <div className="shell center">
       <DevBanner />
       <main className="login">
+        <div className="brandbox"><img src="/logo.png" alt="Right Services" className="logo-full" /></div>
         <h1>Development sign-in</h1>
         <p className="muted">
           Pick a fictional user. In production this screen is replaced by Microsoft Entra External ID sign-in.

@@ -20,7 +20,7 @@ export default function RootLayout() {
             headerTransparent: false,
             headerStyle: { backgroundColor: C.card },
             headerTintColor: C.brand,
-            headerTitleStyle: { color: C.text },
+            headerTitleStyle: { color: C.ink },
             contentStyle: { backgroundColor: C.bg },
           }}
         >

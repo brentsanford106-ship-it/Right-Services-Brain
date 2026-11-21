@@ -12,14 +12,30 @@
       "infoPlist": {
         "NSCameraUsageDescription": "The camera is used to take job-site photos.",
         "NSLocationWhenInUseUsageDescription": "Location is optionally saved with job-site photos so they can be found by place."
-      }
+      },
+      "icon": "./assets/brand/icon.png"
     },
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      ["expo-camera", { "cameraPermission": "The camera is used to take job-site photos.", "microphonePermission": false, "recordAudioAndroid": false }],
-      ["expo-location", { "locationWhenInUsePermission": "Location is optionally saved with job-site photos so they can be found by place." }]
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "The camera is used to take job-site photos.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Location is optionally saved with job-site photos so they can be found by place."
+        }
+      ]
     ],
-    "experiments": { "typedRoutes": false }
+    "experiments": {
+      "typedRoutes": false
+    },
+    "icon": "./assets/brand/icon.png"
   }
 }

@@ -1,5 +1,5 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View, type ImageStyle, type StyleProp, type ViewStyle } from "react-native";
 import type { Stage, SyncState } from "@rsb/photo-sync";
 
 export const C = {
@@ -8,7 +8,8 @@ export const C = {
   text: "#14171c",
   muted: "#5f6b7a",
   line: "#dde1e7",
-  brand: "#1f5fbf",
+  brand: "#d40e3b", // Right Services red (from the logo)
+  ink: "#1c1d21", // logo black
   brandText: "#ffffff",
   flag: "#d92d20",
   flagSoft: "#fde8e7",
@@ -62,6 +63,22 @@ export function StatusPill(props: { status: string; onPress?: () => void }) {
   );
 }
 
+/** Right Services logo. "full" = mark + wordmark (white background), "mark" = the RS hexagon only. */
+export function Logo(props: { variant?: "full" | "mark"; height?: number; style?: StyleProp<ImageStyle> }) {
+  const full = props.variant !== "mark";
+  const h = props.height ?? (full ? 64 : 28);
+  // Aspect ratios of the image files in assets/brand.
+  const w = full ? h * (678 / 247) : h;
+  return (
+    <Image
+      source={full ? require("../assets/brand/logo.png") : require("../assets/brand/mark.png")}
+      style={[{ width: w, height: h }, props.style]}
+      resizeMode="contain"
+      accessibilityLabel="Right Services"
+    />
+  );
+}
+
 export function DevBanner() {
   return (
     <View style={s.dev} accessibilityRole="alert">
@@ -103,7 +120,7 @@ export function Button(props: {
 }
 
 export function Chip(props: { label: string; active: boolean; onPress: () => void; tone?: "flag" }) {
-  const activeBg = props.tone === "flag" ? C.flag : C.brand;
+  const activeBg = props.tone === "flag" ? C.flag : C.ink;
   return (
     <Pressable
       accessibilityRole="button"
@@ -118,7 +135,7 @@ export function Chip(props: { label: string; active: boolean; onPress: () => voi
 
 const SYNC_LABEL: Record<SyncState | "server", { text: string; fg: string; bg: string }> = {
   waiting: { text: "Waiting to upload", fg: C.warn, bg: C.warnSoft },
-  uploading: { text: "Uploading…", fg: C.brand, bg: "#e6efff" },
+  uploading: { text: "Uploading…", fg: "#1f5fbf", bg: "#e6efff" },
   synced: { text: "Uploaded", fg: C.ok, bg: C.okSoft },
   needs_attention: { text: "Needs attention", fg: C.flag, bg: C.flagSoft },
   server: { text: "Uploaded", fg: C.ok, bg: C.okSoft },
