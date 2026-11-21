@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppProvider } from "../src/state";
 import { C } from "../src/ui";
 import { ThemeProvider } from "../src/theme";
+import { Intro } from "../src/Intro";
 
 export default function RootLayout() {
   return (
@@ -68,6 +69,7 @@ export default function RootLayout() {
             </>
           )}
         </ThemeProvider>
+        <Intro />
       </AppProvider>
     </SafeAreaProvider>
   );
