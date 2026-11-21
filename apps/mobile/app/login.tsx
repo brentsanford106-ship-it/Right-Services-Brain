@@ -19,6 +19,7 @@ interface DevUser {
 export default function Login() {
   const app = useApp();
   const [address, setAddress] = useState(app.server);
+  useEffect(() => setAddress(app.server), [app.server]);
   const [users, setUsers] = useState<DevUser[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -28,7 +29,9 @@ export default function Login() {
     setError(null);
     setUsers(null);
     try {
-      const res = await expoFetch(`${app.server}/dev/auth/users`);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 6000);
+      const res = await expoFetch(`${app.server}/dev/auth/users`, { signal: ctrl.signal }).finally(() => clearTimeout(timer));
       if (!res.ok) throw new Error(`The server answered ${res.status}. Is development sign-in turned on?`);
       setUsers(((await res.json()) as { items: DevUser[] }).items);
     } catch (e) {

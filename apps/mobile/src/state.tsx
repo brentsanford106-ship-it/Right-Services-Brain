@@ -5,6 +5,7 @@ import * as Network from "expo-network";
 import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import { fetch as expoFetch } from "expo/fetch";
+import Constants from "expo-constants";
 import {
   ApiError,
   HttpClient,
@@ -42,7 +43,16 @@ const OPTS: SecureStore.SecureStoreOptions = { keychainAccessible: SecureStore.W
 const SYNC_EVERY_MS = 60_000;
 const KEEP_SYNCED_DETAILS_MS = 7 * 24 * 3600_000;
 
-export const DEFAULT_SERVER = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.10:4000";
+/**
+ * During development the app is loaded from the PC that also runs the server, so use that PC's address
+ * (port 4000) unless an address is set explicitly. You can still change it on the sign-in screen.
+ */
+function guessServer(): string {
+  const host = Constants.expoConfig?.hostUri?.split(":")[0];
+  if (host && /^[0-9.]+$/.test(host)) return `http://${host}:4000`;
+  return process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.10:4000";
+}
+export const DEFAULT_SERVER = guessServer();
 
 const fetchLike: FetchLike = async (url, init) => {
   const res = await expoFetch(url, { method: init.method, headers: init.headers, body: init.body as string | undefined, signal: init.signal });
