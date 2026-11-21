@@ -95,7 +95,7 @@ export default function Home() {
             style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" }}
             accessibilityIgnoresInvertColors
           />
-          <View style={{ alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 10, padding: 6, margin: 12 }}>
+          <View style={{ alignSelf: "flex-end", backgroundColor: "#fff", borderRadius: 10, padding: 6, margin: 12 }}>
             <Logo height={34} />
           </View>
           <View style={{ backgroundColor: "rgba(20,20,24,0.62)", paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 3, borderTopColor: C.brand }}>
