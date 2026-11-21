@@ -14,6 +14,7 @@
     "db:setup-company": "pnpm --filter @rsb/db setup-company",
     "db:reset": "pnpm --filter @rsb/db reset",
     "dev:api": "pnpm --filter @rsb/api dev",
+    "dev:api:phone": "pnpm --filter @rsb/api dev:lan",
     "dev:web": "pnpm --filter @rsb/web dev",
     "dev:mobile": "pnpm --filter @rsb/mobile start",
     "typecheck": "pnpm -r --if-present typecheck",

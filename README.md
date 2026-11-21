@@ -78,8 +78,8 @@ The iPhone runs the app through **Expo Go**, a free app from the App Store. No A
 1. On the iPhone, install **Expo Go** from the App Store.
 2. Make sure the iPhone and the PC are on the **same Wi-Fi network** (not a guest network).
 3. Find your PC's address on the network. In PowerShell run `ipconfig` and look for **IPv4 Address** under your Wi-Fi adapter, for example `192.168.1.23`.
-4. Let the phone reach the server. Open `.env` in Notepad and change `API_HOST=127.0.0.1` to `API_HOST=0.0.0.0`. Save. Restart window 1 (`Ctrl+C`, then `pnpm dev:api`). If Windows asks whether Node.js may use the network, choose **Private networks** and click **Allow**.
-   *Change it back to `127.0.0.1` when you finish testing; while it's `0.0.0.0`, anyone on your Wi-Fi could use the test sign-in.*
+4. Let the phone reach the server. In window 1 press `Ctrl+C`, then run `pnpm dev:api:phone` instead of `pnpm dev:api`. No file to edit. If Windows asks whether Node.js may use the network, choose **Private networks** and click **Allow**.
+   *Go back to `pnpm dev:api` when you finish testing; while the phone version runs, anyone on your Wi-Fi could use the test sign-in. If the server ever says a setting "is set outside .env", close that PowerShell window and open a new one.*
 5. In a third PowerShell window: `pnpm dev:mobile`. A QR code appears.
 6. Open the iPhone's **Camera** app, point it at the QR code and tap the banner. Expo Go opens the app.
 7. On the sign-in screen, type the server address `http://<your IPv4 address>:4000` (for example `http://192.168.1.23:4000`), tap **Connect**, then pick a test person such as **Eli Employee**.
