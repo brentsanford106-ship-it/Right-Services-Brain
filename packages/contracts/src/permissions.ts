@@ -45,7 +45,7 @@ export const PERMISSION_INFO: Record<Permission, { group: string; label: string;
   "org.read": { group: "Company", label: "See the company name and basic details", phase1: true },
   "org.manage": { group: "Company", label: "Change company settings (like how long Recently Deleted keeps photos)", phase1: true },
   "members.read": { group: "Team", label: "See the list of people in the company", phase1: true },
-  "members.manage": { group: "Team", label: "Add or remove people (needs real sign-in, not yet)", phase1: false },
+  "members.manage": { group: "Team", label: "Add people by email, and suspend or remove people", phase1: true },
   "roles.manage": { group: "Team", label: "Create and edit roles, and choose each person's roles", phase1: true },
   "customers.read": { group: "Customers", label: "See customers", phase1: false },
   "customers.manage": { group: "Customers", label: "Add and edit customers", phase1: false },

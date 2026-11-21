@@ -1,4 +1,5 @@
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createRemoteJWKSet, errors, jwtVerify } from "jose";
+import { HttpError } from "../lib/errors.js";
 import type { TokenVerifier, VerifiedIdentity } from "./types.js";
 
 /**
@@ -7,7 +8,10 @@ import type { TokenVerifier, VerifiedIdentity } from "./types.js";
  * issuer, audience, expiry and not-before, with a small clock tolerance.
  * Only asymmetric algorithms are accepted.
  *
- * STATUS: implemented but not yet exercised against a real Entra tenant (Phase 2).
+ * If Microsoft's key list can't be fetched (network trouble), the request fails with a temporary
+ * server error, NOT "signed out": the phone must never treat a hiccup as "your access was removed".
+ *
+ * STATUS: tested against a local stand-in provider (test/oidc-verifier.test.ts); not yet against a real Entra tenant.
  */
 export class OidcVerifier implements TokenVerifier {
   private readonly jwks: ReturnType<typeof createRemoteJWKSet>;
@@ -26,8 +30,13 @@ export class OidcVerifier implements TokenVerifier {
         requiredClaims: ["sub", "exp", "iat"],
       });
       if (typeof payload.sub !== "string" || !payload.iss) return null;
-      return { issuer: payload.iss, subject: payload.sub };
-    } catch {
+      const email = typeof payload.email === "string" ? payload.email.trim() : undefined;
+      const name = typeof payload.name === "string" ? payload.name : undefined;
+      return { issuer: payload.iss, subject: payload.sub, ...(email ? { email } : {}), ...(name ? { name } : {}) };
+    } catch (e) {
+      if (e instanceof errors.JWKSTimeout || !(e instanceof errors.JOSEError)) {
+        throw new HttpError("internal_error", "Sign-in service is unreachable. Please try again shortly.");
+      }
       return null;
     }
   }

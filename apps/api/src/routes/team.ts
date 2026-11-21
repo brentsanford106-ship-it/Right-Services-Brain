@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import {
+  CreateInviteRequest,
   CreateRoleRequest,
+  InviteParams,
+  SetMemberStatusRequest,
+  type TeamInvite,
   MemberParams,
   OrgParams,
   PERMISSIONS,
@@ -317,6 +321,98 @@ export async function teamRoutes(app: FastifyInstance, { db, config }: RouteDeps
         [membershipId],
       );
       return { membershipId, roles };
+    });
+  });
+
+  // ------------------------------------------------------------ adding and removing people
+  app.get("/v1/orgs/:orgId/team/invites", async (req) => {
+    const { orgId } = parse(OrgParams, req.params);
+    return inOrg(db, req, orgId, async (tx, ctx) => {
+      ctx.require("members.manage", "roles.manage");
+      const { rows } = await tx.query<{ id: string; email: string; display_name: string; job_title: string | null; roles: { id: string; name: string }[] | null; invited_by: string; created_at: Date }>(
+        `SELECT i.id, i.email, i.display_name, i.job_title, iu.display_name AS invited_by, i.created_at,
+                (SELECT json_agg(json_build_object('id', r.id, 'name', r.name) ORDER BY r.name) FROM roles r WHERE r.id = ANY (i.role_ids)) AS roles
+           FROM member_invites i
+           JOIN organization_memberships im ON im.organization_id = i.organization_id AND im.id = i.invited_by_membership_id
+           JOIN users iu ON iu.id = im.user_id
+          WHERE i.accepted_at IS NULL AND i.revoked_at IS NULL
+          ORDER BY i.created_at DESC`,
+      );
+      const items: TeamInvite[] = rows.map((r) => ({
+        id: r.id,
+        email: r.email,
+        displayName: r.display_name,
+        jobTitle: r.job_title,
+        roles: r.roles ?? [],
+        invitedBy: r.invited_by,
+        createdAt: r.created_at.toISOString(),
+      }));
+      return { items };
+    });
+  });
+
+  app.post("/v1/orgs/:orgId/team/invites", async (req, reply) => {
+    const { orgId } = parse(OrgParams, req.params);
+    const body = parse(CreateInviteRequest, req.body);
+    const invite = await inOrg(db, req, orgId, async (tx, ctx) => {
+      ctx.require("members.manage");
+      const roleIds = [...new Set(body.roleIds)];
+      const { rows: found } = await tx.query<{ id: string }>("SELECT id FROM roles WHERE id = ANY($1::uuid[])", [roleIds]);
+      if (found.length !== roleIds.length) throw notFound();
+      // Same rule as changing roles: you can't add someone with more power than you have.
+      mustHoldAll(ctx, await permissionsOfRoles(tx, roleIds));
+      const { rows: existing } = await tx.query<{ status: string }>(
+        "SELECT m.status FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE m.organization_id = $1 AND u.email = $2::citext",
+        [ctx.orgId, body.email],
+      );
+      if (existing.some((e) => e.status !== "removed")) throw new HttpError("conflict", "Someone with that email is already in the company.");
+      const { rows: open } = await tx.query("SELECT 1 FROM member_invites WHERE email = $1::citext AND accepted_at IS NULL AND revoked_at IS NULL", [body.email]);
+      if (open.length) throw new HttpError("conflict", "That email has already been added and is waiting for its first sign-in.");
+      const { rows } = await tx.query<{ id: string; created_at: Date }>(
+        `INSERT INTO member_invites (organization_id, email, display_name, job_title, role_ids, invited_by_membership_id)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+        [ctx.orgId, body.email, body.displayName, body.jobTitle ?? null, roleIds, ctx.membershipId],
+      );
+      const id = rows[0]!.id;
+      // The email address itself is deliberately not copied into the audit log.
+      await recordAudit(tx, ctx, "member.invited", "member_invite", id, { roleIds });
+      return { id, createdAt: rows[0]!.created_at.toISOString() };
+    });
+    return reply.status(201).send(invite);
+  });
+
+  app.delete("/v1/orgs/:orgId/team/invites/:inviteId", async (req, reply) => {
+    const { orgId, inviteId } = parse(InviteParams, req.params);
+    await inOrg(db, req, orgId, async (tx, ctx) => {
+      ctx.require("members.manage");
+      const { rowCount } = await tx.query("UPDATE member_invites SET revoked_at = now() WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL", [inviteId]);
+      if (rowCount !== 1) throw notFound();
+      await recordAudit(tx, ctx, "member.invite_revoked", "member_invite", inviteId);
+    });
+    return reply.status(204).send();
+  });
+
+  app.patch("/v1/orgs/:orgId/team/members/:membershipId/status", async (req) => {
+    const { orgId, membershipId } = parse(MemberParams, req.params);
+    const body = parse(SetMemberStatusRequest, req.body);
+    return inOrg(db, req, orgId, async (tx, ctx) => {
+      ctx.require("members.manage");
+      const { rows: m } = await tx.query<{ status: string }>("SELECT status FROM organization_memberships WHERE id = $1 AND organization_id = $2", [membershipId, ctx.orgId]);
+      if (!m[0]) throw notFound();
+      const { rows: current } = await tx.query<{ role_id: string }>("SELECT role_id FROM membership_roles WHERE membership_id = $1", [membershipId]);
+      // You can't remove or suspend someone with more power than you.
+      mustHoldAll(ctx, await permissionsOfRoles(tx, current.map((c) => c.role_id)));
+      if (m[0].status !== body.status) {
+        await tx.query("UPDATE organization_memberships SET status = $2 WHERE id = $1", [membershipId, body.status]);
+        try {
+          await tx.query("SET CONSTRAINTS memberships_keep_owner IMMEDIATE");
+        } catch (e) {
+          if (/at least one active owner/.test((e as Error).message)) throw new HttpError("conflict", LAST_OWNER);
+          throw e;
+        }
+        await recordAudit(tx, ctx, "member.status_changed", "membership", membershipId, { from: m[0].status, to: body.status });
+      }
+      return { membershipId, status: body.status };
     });
   });
 

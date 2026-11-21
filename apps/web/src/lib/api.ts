@@ -1,24 +1,46 @@
 import { ApiError } from "@rsb/contracts";
+import { refreshTokens, type EntraTokens } from "./entra";
 
 export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "http://localhost:4000";
 
 /**
- * The access token is kept in memory only (never localStorage), so it is not
- * readable by other tabs or persisted on shared computers. Reloading the page
- * signs the user out. Production sign-in (Entra External ID) will manage tokens
- * with its own secure cache.
+ * Tokens are kept in memory only (never localStorage), so they are not readable by other tabs
+ * or left behind on shared computers. Reloading the page signs the person out.
  */
 let accessToken: string | null = null;
 /** DEVELOPMENT ONLY: which test person is signed in, so an expired 15-minute token can be renewed. */
 let devSubject: string | null = null;
+/** Real sign-in: Microsoft's refresh token, used to get a new access token when it runs out. */
+let refreshToken: string | null = null;
+/** A message for the sign-in page, e.g. "You haven't been added to a company yet." */
+let notice: string | null = null;
 const listeners = new Set<() => void>();
 export const session = {
   get token() {
     return accessToken;
   },
+  get notice() {
+    return notice;
+  },
   set(token: string | null, subject: string | null = null) {
     accessToken = token;
     devSubject = token ? subject : null;
+    refreshToken = null;
+    if (token) notice = null;
+    listeners.forEach((l) => l());
+  },
+  /** Real Microsoft sign-in. */
+  setEntra(t: EntraTokens) {
+    accessToken = t.accessToken;
+    devSubject = null;
+    refreshToken = t.refreshToken;
+    notice = null;
+    listeners.forEach((l) => l());
+  },
+  signOutWith(message: string | null) {
+    notice = message;
+    this.set(null);
+    notice = message;
     listeners.forEach((l) => l());
   },
   subscribe(l: () => void) {
@@ -39,6 +61,16 @@ export class ApiRequestError extends Error {
 }
 
 async function renewDevToken(): Promise<boolean> {
+  if (refreshToken) {
+    try {
+      const t = await refreshTokens(refreshToken);
+      accessToken = t.accessToken;
+      if (t.refreshToken) refreshToken = t.refreshToken;
+      return true;
+    } catch {
+      return false;
+    }
+  }
   if (!devSubject) return false;
   const res = await fetch(`${API_BASE}/dev/auth/token`, {
     method: "POST",
@@ -71,7 +103,7 @@ export async function api<T>(path: string, init: { method?: "GET" | "POST" | "PA
   const data: unknown = await res.json().catch(() => null);
   if (!res.ok) {
     const parsed = ApiError.safeParse(data);
-    if (res.status === 401) session.set(null);
+    if (res.status === 401) session.signOutWith(parsed.success ? parsed.data.error.message : null);
     if (parsed.success) throw new ApiRequestError(res.status, parsed.data.error.code, parsed.data.error.message, parsed.data.error.requestId);
     throw new ApiRequestError(res.status, "internal_error", "Unexpected response from server.");
   }

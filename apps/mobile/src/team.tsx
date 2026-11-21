@@ -81,3 +81,13 @@ export function CheckRow(props: { label: string; sub?: string; checked: boolean;
     </Pressable>
   );
 }
+
+export interface TeamInvite {
+  id: string;
+  email: string;
+  displayName: string;
+  jobTitle: string | null;
+  roles: { id: string; name: string }[];
+  invitedBy: string;
+  createdAt: string;
+}

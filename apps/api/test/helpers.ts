@@ -10,6 +10,7 @@ import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/config.js";
 import { createDatabase, type Database } from "../src/lib/db.js";
 import { DevAuth } from "../src/auth/dev.js";
+import type { TokenVerifier } from "../src/auth/types.js";
 import { fixtures } from "@rsb/db";
 
 export const F = fixtures;
@@ -41,7 +42,7 @@ export interface Res {
   headers: Record<string, string | string[] | number | undefined>;
 }
 
-export async function createTestApp(overrides: Record<string, string> = {}): Promise<TestApp> {
+export async function createTestApp(overrides: Record<string, string> = {}, opts: { extraVerifiers?: TokenVerifier[] } = {}): Promise<TestApp> {
   const config = loadConfig({
     APP_ENV: "test",
     DATABASE_URL: inject("appDbUrl"),
@@ -63,7 +64,14 @@ export async function createTestApp(overrides: Record<string, string> = {}): Pro
     },
   });
   const storage = new LocalDiskStorage(mkdtempSync(path.join(tmpdir(), "rsb-store-")));
-  const app = await buildApp({ config, db, devAuth: config.devAuthEnabled ? devAuth : null, logStream, storage });
+  const app = await buildApp({
+    config,
+    db,
+    devAuth: config.devAuthEnabled ? devAuth : null,
+    logStream,
+    storage,
+    ...(opts.extraVerifiers ? { verifiers: [...opts.extraVerifiers, ...(config.devAuthEnabled ? [devAuth] : [])] } : {}),
+  });
   await app.ready();
 
   const send = async (method: "GET" | "POST" | "PATCH" | "DELETE", url: string, token: string | null, body?: unknown): Promise<Res> => {

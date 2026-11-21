@@ -337,6 +337,27 @@ export type UpdateRoleRequest = z.infer<typeof UpdateRoleRequest>;
 export const SetMemberRolesRequest = z.strictObject({ roleIds: z.array(Uuid).min(1, "Everyone needs at least one role.").max(20) });
 export type SetMemberRolesRequest = z.infer<typeof SetMemberRolesRequest>;
 
+export const InviteParams = z.strictObject({ orgId: Uuid, inviteId: Uuid });
+export const CreateInviteRequest = z.strictObject({
+  email: z.string().trim().toLowerCase().pipe(z.email("Enter a valid email address.").max(320)),
+  displayName: z.string().trim().min(1).max(200),
+  jobTitle: z.string().trim().max(120).nullable().optional(),
+  roleIds: z.array(Uuid).min(1, "Choose at least one role.").max(20),
+});
+export type CreateInviteRequest = z.infer<typeof CreateInviteRequest>;
+export const TeamInvite = z.object({
+  id: Uuid,
+  email: z.string(),
+  displayName: z.string(),
+  jobTitle: z.string().nullable(),
+  roles: z.array(z.object({ id: Uuid, name: z.string() })),
+  invitedBy: z.string(),
+  createdAt: z.string(),
+});
+export type TeamInvite = z.infer<typeof TeamInvite>;
+export const SetMemberStatusRequest = z.strictObject({ status: z.enum(["active", "suspended", "removed"]) });
+export type SetMemberStatusRequest = z.infer<typeof SetMemberStatusRequest>;
+
 // ---------------------------------------------------------------- dashboard
 export const DashboardResponse = z.object({
   activeJobs: z.number().int(),

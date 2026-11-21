@@ -2,6 +2,13 @@
 export interface VerifiedIdentity {
   issuer: string;
   subject: string;
+  /**
+   * Email address vouched for by the identity provider. Set ONLY by the production OIDC verifier, and only
+   * used to match invites (see app.claim_invites). The Entra tenant allows email-verified local accounts only.
+   */
+  email?: string;
+  /** Display name from the identity provider, if any. */
+  name?: string;
 }
 
 export interface TokenVerifier {

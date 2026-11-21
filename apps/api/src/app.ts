@@ -6,7 +6,7 @@ import rateLimit from "@fastify/rate-limit";
 import type { AppConfig } from "./config.js";
 import type { Database } from "./lib/db.js";
 import { HttpError } from "./lib/errors.js";
-import type { TokenVerifier } from "./auth/types.js";
+import type { TokenVerifier, VerifiedIdentity } from "./auth/types.js";
 import { DevAuth } from "./auth/dev.js";
 import { OidcVerifier } from "./auth/oidc.js";
 import { registerRoutes } from "./routes/index.js";
@@ -18,6 +18,8 @@ declare module "fastify" {
   interface FastifyRequest {
     /** Set only after a token is verified AND mapped to an active user. */
     principal: { userId: string } | null;
+    /** The verified identity behind `principal` (used to accept new invites). */
+    identity: VerifiedIdentity | null;
   }
 }
 
@@ -68,6 +70,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   app.decorateRequest("principal", null);
+  app.decorateRequest("identity", null);
 
   await app.register(helmet, {
     contentSecurityPolicy: { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] } },
@@ -117,10 +120,25 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           identity.issuer,
           identity.subject,
         ]);
-        return rows[0]?.id ?? null;
+        if (rows[0]?.id) return rows[0].id;
+        // First real sign-in: link the person to any open invite for their verified email.
+        if (!identity.email) return null;
+        const { rows: claimed } = await tx.query<{ id: string | null }>("SELECT app.claim_invites($1, $2, $3, $4) AS id", [
+          identity.issuer,
+          identity.subject,
+          identity.email,
+          identity.name ?? null,
+        ]);
+        return claimed[0]?.id ?? null;
       });
-      if (!userId) throw new HttpError("unauthenticated", "Your account is not active.");
+      if (!userId) {
+        throw new HttpError(
+          "unauthenticated",
+          identity.email ? "You haven't been added to a company yet. Ask an owner to add your email address." : "Your account is not active.",
+        );
+      }
       req.principal = { userId };
+      req.identity = identity;
       return;
     }
     throw new HttpError("unauthenticated", "Your session is invalid or has expired.");

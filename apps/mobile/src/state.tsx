@@ -18,6 +18,7 @@ import {
   type SyncStatus,
 } from "@rsb/photo-sync";
 import { ExpoBlobStore, ExpoCipher, clearScratch, deleteQuietly, scratchDir } from "./platform";
+import * as entra from "./entra";
 
 /** What we remember between app launches (kept in the iOS Keychain). No passwords; the dev token is never stored. */
 export interface Session {
@@ -26,7 +27,11 @@ export interface Session {
   orgId: string;
   orgName: string;
   permissions: string[];
+  /** "entra" = real Microsoft sign-in. Missing or "dev" = the development sign-in (test people only). */
+  mode?: "dev" | "entra";
 }
+
+type Who = { subject: string; displayName: string; mode: "dev" | "entra" };
 
 export interface Job {
   id: string;
@@ -88,6 +93,10 @@ interface Ctx {
   engine: SyncEngine;
   online: boolean;
   signIn(subject: string, displayName: string): Promise<{ orgs: { organizationId: string; organizationName: string }[] }>;
+  /** Real sign-in with Microsoft. Returns null if the person closed the sign-in page. */
+  signInReal(): Promise<{ orgs: { organizationId: string; organizationName: string }[] } | null>;
+  /** Set when real sign-in has expired; the person must sign in again. Unsent photos are kept. */
+  notice: string | null;
   chooseOrg(orgId: string, orgName: string): Promise<void>;
   signOut(): Promise<void>;
   syncNow(): void;
@@ -131,7 +140,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [online, setOnline] = useState(true);
   const serverRef = useRef(server);
   const sessionRef = useRef<Session | null>(null);
-  const pendingSubject = useRef<{ subject: string; displayName: string } | null>(null);
+  const pendingSubject = useRef<Who | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const token = useRef<{ value: string; expiresAt: number; subject: string } | null>(null);
   const holder = useRef<{ queue: PhotoQueue; engine: SyncEngine; api: HttpClient; vault: Vault } | null>(null);
 
@@ -156,13 +166,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return body.accessToken;
   }, []);
 
-  // DEVELOPMENT sign-in: a fresh 15-minute token is requested whenever needed. Real sign-in (Microsoft Entra
-  // External ID with refresh tokens) replaces this before any real data is used.
+  // Real sign-in: a fresh access token comes from Microsoft using the refresh token in the Keychain.
+  // DEVELOPMENT sign-in: a fresh 15-minute token is requested from the dev server whenever needed.
   const getToken = useCallback(async (): Promise<string | null> => {
     const subject = sessionRef.current?.subject ?? pendingSubject.current?.subject;
+    const mode = sessionRef.current?.mode ?? pendingSubject.current?.mode ?? "dev";
     if (!subject) return null;
     const t = token.current;
     if (t && t.subject === subject && t.expiresAt - Date.now() > 60_000) return t.value;
+    if (mode === "entra") {
+      try {
+        const r = await entra.refresh();
+        if ("entra:" + r.subject !== subject) throw new entra.SignInExpired("Please sign in again.");
+        token.current = { value: r.accessToken, expiresAt: r.expiresAt, subject };
+        return r.accessToken;
+      } catch (e) {
+        if (e instanceof entra.SignInExpired) {
+          await expireRef.current?.();
+          return null;
+        }
+        throw new NetworkError();
+      }
+    }
     try {
       return await issueDevToken(subject);
     } catch (e) {
@@ -176,6 +201,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [issueDevToken]);
 
   const revokeRef = useRef<(() => Promise<void>) | null>(null);
+  const expireRef = useRef<(() => Promise<void>) | null>(null);
 
   if (!holder.current) {
     // Created synchronously so screens always have objects to use; the vault is opened in the effect below.
@@ -254,6 +280,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [session, ready, syncNow]);
 
   const wipeAll = useCallback(async () => {
+    await entra.forget().catch(() => undefined);
     await holder.current?.queue.wipe();
     await ExpoCipher.destroyKey(); // crypto-shred: even a missed file can no longer be decrypted
     await SecureStore.deleteItemAsync(SESSION_KEY, OPTS);
@@ -267,6 +294,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     force((n) => n + 1);
   }, [rebuild]);
   revokeRef.current = wipeAll;
+
+  // Real sign-in ran out (for example after a long time without opening the app). Unlike signing out or
+  // being removed, the person's unsent photos stay encrypted on the phone and upload after they sign in again.
+  const expire = useCallback(async () => {
+    await entra.forget().catch(() => undefined);
+    await SecureStore.deleteItemAsync(SESSION_KEY, OPTS);
+    token.current = null;
+    sessionRef.current = null;
+    pendingSubject.current = null;
+    setSession(null);
+    setNotice("Your sign-in has expired. Please sign in again. Photos not yet sent are still on this phone.");
+  }, []);
+  expireRef.current = expire;
 
   const value = useMemo<Ctx>(() => {
     const h = holder.current!;
@@ -294,18 +334,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const q = holder.current!.queue;
         const owner = q.getOwner();
         if (owner && owner.subject !== subject && q.pending().length > 0) throw new OwnerMismatchError(owner);
-        pendingSubject.current = { subject, displayName };
+        pendingSubject.current = { subject, displayName, mode: "dev" };
         token.current = null;
         await issueDevToken(subject);
         const me = await holder.current!.api.get<{ memberships: { organizationId: string; organizationName: string }[] }>("/v1/me");
         return { orgs: me.memberships };
       },
+      notice,
+      async signInReal() {
+        const r = await entra.signInInteractive();
+        if (!r) return null;
+        const subject = "entra:" + r.subject;
+        const q = holder.current!.queue;
+        const owner = q.getOwner();
+        if (owner && owner.subject !== subject && q.pending().length > 0) {
+          await entra.forget();
+          throw new OwnerMismatchError(owner);
+        }
+        pendingSubject.current = { subject, displayName: r.name ?? "Me", mode: "entra" };
+        token.current = { value: r.accessToken, expiresAt: r.expiresAt, subject };
+        setNotice(null);
+        try {
+          const me = await holder.current!.api.get<{ user?: { displayName?: string }; memberships: { organizationId: string; organizationName: string }[] }>("/v1/me");
+          if (me.user?.displayName) pendingSubject.current.displayName = me.user.displayName;
+          return { orgs: me.memberships };
+        } catch (e) {
+          // Not added to a company (401): don't keep their Microsoft sign-in on this phone.
+          if (e instanceof ApiError && e.status === 401) {
+            await entra.forget();
+            pendingSubject.current = null;
+            token.current = null;
+          }
+          throw e;
+        }
+      },
       async chooseOrg(orgId: string, orgName: string) {
-        const p = pendingSubject.current ?? (sessionRef.current ? { subject: sessionRef.current.subject, displayName: sessionRef.current.displayName } : null);
+        const p: Who | null = pendingSubject.current ?? (sessionRef.current ? { subject: sessionRef.current.subject, displayName: sessionRef.current.displayName, mode: sessionRef.current.mode ?? "dev" } : null);
         if (!p) throw new Error("Sign in first.");
         const ctx = await holder.current!.api.get<{ permissions: string[] }>(`/v1/orgs/${orgId}`);
         await holder.current!.queue.claim({ subject: p.subject, displayName: p.displayName });
-        const s: Session = { subject: p.subject, displayName: p.displayName, orgId, orgName, permissions: ctx.permissions };
+        const s: Session = { subject: p.subject, displayName: p.displayName, orgId, orgName, permissions: ctx.permissions, mode: p.mode };
         await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(s), OPTS);
         sessionRef.current = s;
         pendingSubject.current = null;
@@ -325,8 +393,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(s), OPTS);
           sessionRef.current = s;
           setSession(s);
-        } catch {
-          // Offline or signed out: keep what we have. The server still checks every action.
+        } catch (e) {
+          // Removed from this company (404): wipe this phone's copy of company data. A 401 is NOT treated as
+          // removal here, because it can also mean a passing sign-in problem, and a wipe loses unsent photos.
+          if (e instanceof ApiError && e.status === 404 && sessionRef.current) {
+            await revokeRef.current?.();
+            return;
+          }
+          // Offline: keep what we have. The server still checks every action.
         }
       },
       token: () => getToken().catch(() => null),
@@ -345,7 +419,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       },
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, fatal, server, session, online, rebuild, issueDevToken, wipeAll, syncNow, getToken, holder.current]);
+  }, [ready, fatal, server, session, online, notice, rebuild, issueDevToken, wipeAll, syncNow, getToken, holder.current]);
 
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
 }

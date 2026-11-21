@@ -1,6 +1,6 @@
 # Phase 1 status: photo management
 
-Last updated: 2026-11-21. Phase 1 is **not complete**. The acceptance flow passes as an automated test, and most of it has now been done by hand on JB's real iPhone (iOS 26, through Expo Go) and Windows PC. Real sign-in, cloud storage and backups are not built.
+Last updated: 2026-11-21. Phase 1 is **not complete**. The acceptance flow passes as an automated test, and most of it has now been done by hand on JB's real iPhone (iOS 26, through Expo Go) and Windows PC. Real sign-in is built and tested locally but not switched on (needs a free Microsoft Entra tenant). Cloud storage and backups are not built.
 
 ## Acceptance flow
 
@@ -46,25 +46,26 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 - Photo flag/unflag, notes, stage changes (PATCH), with audit log entries that do not contain note text.
 - Job search and edit. Photo-only dashboard.
 - Delete forever from Recently Deleted (owners), and a company setting for how long Recently Deleted keeps photos (7 to 90 days, default 30) with an hourly automatic clean-up.
+- Real sign-in (Microsoft Entra External ID) on phone and website, plus adding people by email, withdrawing, suspending and removing them, with the phone wiping company data when access is removed. Built and tested here; not switched on. See `docs/AUTHENTICATION.md`.
 - Team & roles: custom roles, editable Manager/Employee presets, choose each person's roles, with no-escalation and keep-an-owner rules enforced on the server and in the database. Website page "Team & roles" and the same on the phone (Settings > Team & Roles).
 - Receipts, vehicles, and member admin routes are switched off (`PHASE2_FEATURES=false` by default).
 
 ## Test results (2026-11-21: cloud dev environment, and again on JB's Windows PC with the same counts)
 
-- Server: 216 of 216 pass (includes the end-to-end acceptance test, 12 new team & roles tests and 11 new delete-forever / keep-time tests).
+- Server: 230 of 230 pass (includes the end-to-end acceptance test, team & roles, delete-forever / keep-time, 10 add/remove-people tests and 4 tests of the real token checker against a stand-in identity provider). Counts from this cloud dev environment on 2026-11-21; not yet re-run on JB's PC.
 - Offline queue and sync: 21 of 21 pass.
-- Web: 5 of 5 pass.
+- Web: 8 of 8 pass.
 - iPhone app: type check passes and the iOS bundle builds. There are no automated tests of the iPhone screens themselves.
 
 ## Simulated or not built yet
 
-- **Sign-in is simulated.** You pick a test person; there are no passwords. Real sign-in (Microsoft Entra External ID) is not built. Blocks real data.
+- **Sign-in is still simulated in use.** You pick a test person. Real sign-in is built and tested against a stand-in, but it has never talked to Microsoft, because no Entra tenant exists yet (needs JB's go-ahead; free, but Microsoft requires an Azure account). Blocks real data.
 - **Cloud storage is not built.** Photos are stored on the server's disk (development only). The server refuses to start in staging/production without Azure Blob Storage, which is not implemented yet.
 - **No cloud backups yet.** Nothing is deployed. Backup and recovery are planned with Azure (database point-in-time restore, blob soft-delete/versioning); not set up.
 - **Real-iPhone testing is partial.** Done in Expo Go on one iPhone (iOS 26). Still to check on a device: notes after the fix, GPS, encryption speed on many large photos, upload while the app is in the background, and opening the app while still offline (Expo Go itself can't open without the PC connection, so this needs a standalone build). Photos did survive the app being fully closed and reopened. A standalone app build (not Expo Go) needs the paid Apple Developer account.
 - **Demo photos have no picture.** The made-up sample photo records have no image file, so they show "File not uploaded yet" / "Waiting for file". Their notes now say so.
 - **iPhone upload in the background is limited by iOS.** See `docs/IOS_SYNC.md`.
-- **Account revocation wipe** is triggered only when the server refuses to issue a token. Real-sign-in revocation is part of the real sign-in work.
+- **Removal wipe** happens when the phone next connects and loads Home. A phone that never connects again keeps its encrypted data, which needs the phone's passcode to read.
 - **HEIC photos** are stored but have no preview (the app takes JPEG, so this only matters for future imports).
 - No independent security review has been done.
 

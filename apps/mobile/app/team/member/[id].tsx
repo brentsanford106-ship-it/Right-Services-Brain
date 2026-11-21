@@ -33,6 +33,33 @@ export default function MemberRoles() {
     })();
   }, [app.api, base, id]);
 
+  const canRoles = app.can("roles.manage");
+  const canPeople = app.can("members.manage");
+  const targetAllowed = !!member && member.roles.every((r) => (roles.find((x) => x.id === r.id)?.permissions ?? []).every((p) => holds(app.can, p)));
+
+  const setStatus = async (status: "active" | "suspended" | "removed") => {
+    setBusy(true);
+    try {
+      await app.api.patch(`${base}/team/members/${id}/status`, { status });
+      router.back();
+    } catch (e) {
+      Alert.alert("Not changed", errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirmStatus = (status: "suspended" | "removed") =>
+    Alert.alert(
+      status === "removed" ? `Remove ${member?.displayName}?` : `Suspend ${member?.displayName}?`,
+      status === "removed"
+        ? "They lose access straight away. The next time their phone connects, it deletes this company's photos and lists from it, including any photos it hasn't uploaded yet. Photos already uploaded stay. To bring them back, add them again."
+        : "They lose access until you restore them. The next time their phone connects, it deletes this company's data from it, including any photos it hasn't uploaded yet.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: status === "removed" ? "Remove" : "Suspend", style: "destructive", onPress: () => void setStatus(status) },
+      ],
+    );
+
   const ownerRole = roles.find((r) => r.key === "owner");
   const removingOwnOwner = !!member?.isYou && member.roles.some((r) => r.key === "owner") && !!ownerRole && !picked.has(ownerRole.id);
 
@@ -69,7 +96,8 @@ export default function MemberRoles() {
             <Text style={s.muted}>
               Choose {member.isYou ? "your" : `${member.displayName}'s`} roles. People get everything allowed by all of their roles together.
             </Text>
-            <View style={[s.card, { paddingVertical: 0 }]}>
+            {member.status !== "active" ? <Text style={s.error}>{member.displayName} is {member.status}.</Text> : null}
+            {canRoles ? <View style={[s.card, { paddingVertical: 0 }]}>
               {roles.map((r) => {
                 const allowed = r.permissions.every((p) => holds(app.can, p));
                 return (
@@ -90,9 +118,20 @@ export default function MemberRoles() {
                   />
                 );
               })}
-            </View>
-            {picked.size === 0 ? <Text style={s.muted}>Everyone needs at least one role.</Text> : null}
-            <Button title="Save" onPress={confirmSave} disabled={picked.size === 0} busy={busy} />
+            </View> : <Text style={s.muted}>Roles: {member.roles.map((r) => r.name).join(", ") || "none"}</Text>}
+            {canRoles && picked.size === 0 ? <Text style={s.muted}>Everyone needs at least one role.</Text> : null}
+            {canRoles ? <Button title="Save" onPress={confirmSave} disabled={picked.size === 0} busy={busy} /> : null}
+            {canPeople && !member.isYou && targetAllowed ? (
+              <View style={{ gap: 10, marginTop: 18 }}>
+                <Text style={s.label}>ACCESS</Text>
+                {member.status === "suspended" ? (
+                  <Button kind="secondary" title="Restore Access" busy={busy} onPress={() => void setStatus("active")} />
+                ) : (
+                  <Button kind="secondary" title="Suspend" busy={busy} onPress={() => confirmStatus("suspended")} />
+                )}
+                <Button kind="danger" title="Remove From Company" busy={busy} onPress={() => confirmStatus("removed")} />
+              </View>
+            ) : null}
           </>
         ) : null}
       </ScrollView>

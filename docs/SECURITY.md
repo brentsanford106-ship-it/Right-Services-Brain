@@ -22,7 +22,8 @@ This is a development build. **It is not secure for real data yet.** The items u
 - Encryption is done by iOS (Apple CryptoKit, via expo-crypto).
 - **The key**: a random 256-bit key created on the phone, stored only in the iOS Keychain with "when unlocked, this device only". It is not in iCloud or computer backups, and it can't be copied to another phone. It is readable only while the phone is unlocked.
 - **Sign out**: the app warns if photos have not uploaded, then deletes all files **and destroys the key**, so anything missed can never be decrypted ("crypto-shredding"). A new key is created for the next person.
-- **Account disabled or removed**: when the server refuses to sign the person in again, the app does the same wipe. (Applies to the development sign-in today; real sign-in will add a server "revoked" signal.)
+- **Removed or suspended from the company**: the next time the phone connects (Home screen load), the server answers "not found" for the company and the app does the same wipe, including photos not yet uploaded. With the development sign-in, a refused token also wipes.
+- **Real sign-in expired** (Microsoft refresh token ran out or was revoked): back to the sign-in screen, unsent photos are **kept** encrypted and upload after the same person signs in again. A "not signed in" answer from the server is never treated as removal, because it can also be a passing problem (for example Microsoft's key list being unreachable, which the server reports as a temporary error).
 - **Different person signs in** while photos are waiting: refused, so one person's photos are never sent under another person's name.
 - **Lost or stolen phone**: photos on the phone are encrypted and need the phone's passcode to unlock the key. The account should be disabled on the server; the phone's tokens then stop working.
 
@@ -41,7 +42,7 @@ This is a development build. **It is not secure for real data yet.** The items u
 
 ## Must be done before real data
 
-1. Real sign-in (Microsoft Entra External ID; see `docs/AUTHENTICATION.md`), with token refresh and server-side revocation.
+1. Real sign-in switched on and tested against a real Microsoft Entra External ID tenant (code built and tested locally 2026-11-21; see `docs/AUTHENTICATION.md`).
 2. Azure Blob Storage adapter (private container, no public access) and deployment over HTTPS only.
 3. Backups and a tested restore (database point-in-time restore; blob soft-delete and versioning).
 4. Test on real iPhones, including lost-phone and sign-out scenarios.
@@ -68,4 +69,13 @@ This is a development build. **It is not secure for real data yet.** The items u
 - **The Owner role is locked** by a database trigger: always every permission, can't be renamed or deleted. Built-in roles can't be deleted.
 - **A company always keeps an active owner:** a database trigger rejects any change that would leave none, so both co-owners can be owners, and one can step down only while another remains.
 - Everything is company-scoped (row-level security plus explicit checks; another company's ids return 404). Every change is audited (`role.created`, `role.updated`, `role.deleted`, `member.roles_changed`, `org.settings_updated`). Denied attempts are audited too.
-- Not built: inviting or removing people (needs real sign-in). The phone picks up permission changes the next time Home loads with a connection; the server always checks the current permissions on every request regardless.
+- Adding people by email, withdrawing, suspending and removing are built (see `docs/AUTHENTICATION.md`), but can't be used for real until Entra is set up. The phone picks up permission changes the next time Home loads with a connection; the server always checks the current permissions on every request regardless.
+
+## Real sign-in (added 2026-11-21)
+
+- Phone and website use the authorization code flow with PKCE (no app secrets anywhere). Phone: refresh token in the iOS Keychain (this device only), access token in memory. Website: everything in memory; only the one-time PKCE value and a random `state` sit in sessionStorage during the hop to Microsoft and back, then are deleted.
+- The server accepts a person only if an owner added their **verified** email (Microsoft's one-time email code proves it). An email that matches no invite gets no account and no access.
+- Invites are company-scoped (row-level security), one open invite per email per company, revocable, and checked against the inviter's own permissions. The roles on an invite are re-checked against the company's roles when it is accepted.
+- Linking runs in one database function (`app.claim_invites`) with row locks, so two sign-ins at once can't create two accounts.
+- The audit log records `member.invited`, `member.invite_revoked`, `member.invite_accepted`, `member.status_changed` without email addresses.
+- Known limit: only Microsoft's email one-time code should be enabled. If other sign-in methods are added later, we must confirm each one verifies the email before it is trusted.

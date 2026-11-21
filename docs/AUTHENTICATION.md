@@ -1,28 +1,60 @@
-# Sign-in plan
+# Sign-in
 
 ## Decision
 
-**Microsoft Entra External ID (external tenant)**, chosen by JB on 2026-11-21. Not built yet; the app currently uses a development stand-in.
+**Microsoft Entra External ID (external tenant)**, chosen by JB on 2026-11-21. The code for real sign-in is built and tested here (2026-11-21). It is **not switched on** yet, because no Entra tenant exists. Until one does, the app shows only the development sign-in.
 
-## Why it fits
+## How it works for people
 
-| Need | How Entra External ID handles it |
-| --- | --- |
-| Employees **without** a Microsoft account | Sign up / sign in with email + password, or a one-time code sent by email. No Microsoft account needed. |
-| Employees who **do** have a work Microsoft account | Can be allowed to sign in with it (federation), through Microsoft's hosted sign-in page. |
-| Owners, managers, employees across **several companies** | One sign-in identity per person. Company membership and role live in our database, not in Entra, so one person can belong to two companies with different roles (already supported and tested). |
-| Public App Store app | iPhone uses the system browser sign-in with PKCE (the standard for mobile apps). |
-| Cost (< $100/month budget) | Free up to 50,000 monthly active users. SMS codes cost extra, so we use email codes, authenticator apps or passkeys for extra verification. |
+1. An owner opens **Team & roles** (website, or phone Settings > Team & Roles) and taps **Add person**: name, email, job title, roles.
+2. We don't send an email. The owner tells the person to open the app and tap **Sign in**.
+3. Microsoft's own sign-in page opens. The person types their email. Microsoft emails them a one-time code. They type the code. **No password and no Microsoft account needed.**
+4. Our server checks the token from Microsoft. If the email matches someone an owner added, the person is linked to that company with those roles, and the invite is used up. If not, they see "You haven't been added to a company yet. Ask an owner to add your email address." and get no access.
+5. Someone already signed in who is added to a second company gets it the next time the app loads their account (opening the Home screen, or signing in).
 
-Checked on 2026-11-21: Entra's own invitation feature is in preview, so **our server sends and tracks invitations** and links the person when they first sign in.
+**Removing and suspending.** Owners can **Suspend** (temporary), **Restore**, or **Remove** a person. Access stops on the server at once. The next time that person's phone connects, it deletes the company's photos and lists from the phone and destroys its encryption key, including photos it hasn't uploaded yet. To bring a removed person back, add them again; they get only the new roles.
 
-Fallback if Entra doesn't work out: Auth0. The server already accepts any standard OpenID Connect provider, so switching is mostly configuration.
+**Rules the server enforces** (tested): only people with "Add people by email, and suspend or remove people" (owners by default) can do this. You can't add someone with a role stronger than your own, and you can't suspend or remove someone with permissions you don't have. A company always keeps an active owner. Everything is audited, without copying email addresses into the audit log.
 
-## What exists today
+## Technical summary
 
-- The server verifies standard OpenID Connect tokens (issuer, audience, signature, expiry) and maps each person to an active account in our database. Disabled accounts and suspended memberships are refused (tested).
-- The development stand-in issues 15-minute test tokens. It only works when `APP_ENV` is development/test **and** `DEV_AUTH_ENABLED=true`; the server refuses to start otherwise.
+| Part | What it does | Where |
+| --- | --- | --- |
+| Server token check | Checks signature (Microsoft's published keys), issuer, audience, expiry. Only RS256/PS256/ES256. If Microsoft's key list can't be reached, the answer is a temporary error, never "signed out". | `apps/api/src/auth/oidc.ts` |
+| Linking on first sign-in | `app.claim_invites()` in the database: makes the account, membership and roles from open invites for the verified email. A disabled account never comes back through an invite. | `packages/db/migrations/0011_member_invites.sql` |
+| Add / withdraw / suspend / remove | `/v1/orgs/:orgId/team/invites`, `/team/members/:id/status` | `apps/api/src/routes/team.ts` |
+| Phone | Authorization code + PKCE in the system browser sheet (`expo-auth-session`). Refresh token in the iOS Keychain, this device only. Access token in memory only. | `apps/mobile/src/entra.ts`, `src/state.tsx` |
+| Website | Authorization code + PKCE, written by us (about 100 lines, no extra library). Tokens in memory only; reloading the page means signing in again, usually one click because Microsoft remembers the browser. | `apps/web/src/lib/entra.ts` |
 
-## Still to build
+**Sign-in expiry on the phone.** If Microsoft's refresh token runs out or is revoked, the phone goes back to the sign-in screen and **keeps** unsent photos (encrypted). They upload after the same person signs in again. Only removal/suspension (or Sign out) wipes the phone.
 
-Entra tenant and app registrations (needs JB's approval to create), iPhone sign-in screen with PKCE, web sign-in, token refresh, invitation flow, and server-side revocation.
+**Tests** (all pass, 2026-11-21): `apps/api/test/member-invites.test.ts` (10), `apps/api/test/oidc-verifier.test.ts` (4: the real token checker against a stand-in identity provider on this computer, including forged, wrong-audience, wrong-issuer, expired, unsigned and "alg none" tokens, and the full add-then-sign-in path), `apps/web/src/entra.test.tsx` (3).
+
+**Not tested yet, needs a real Entra tenant:**
+- Signing in against Microsoft for real, on the website and on the iPhone.
+- Whether Entra accepts Expo Go's `exp://…/--/auth` return address. If not, a small return page on the website will forward to the app.
+- That the access token carries the `email` claim. It must be added as an optional claim on the API app registration (step 6 below).
+
+## Settings (none of these are secret)
+
+| Where | Setting | Example |
+| --- | --- | --- |
+| Server | `OIDC_ISSUER` | `https://<tenant-id>.ciamlogin.com/<tenant-id>/v2.0` |
+| Server | `OIDC_AUDIENCE` | the API app's Application (client) ID |
+| Server | `OIDC_JWKS_URI` | `https://<subdomain>.ciamlogin.com/<tenant-id>/discovery/v2.0/keys` |
+| Website | `VITE_ENTRA_AUTHORITY`, `VITE_ENTRA_CLIENT_ID`, `VITE_ENTRA_API_SCOPE` | `https://<subdomain>.ciamlogin.com/<tenant-id>/v2.0`, web app client ID, `api://<api-client-id>/access_as_user` |
+| Phone | `EXPO_PUBLIC_ENTRA_AUTHORITY`, `EXPO_PUBLIC_ENTRA_CLIENT_ID`, `EXPO_PUBLIC_ENTRA_API_SCOPE` | same pattern, phone app client ID |
+
+The exact issuer value is confirmed from the tenant's `/.well-known/openid-configuration` during setup, not guessed.
+
+## Setup in Microsoft (free; needs JB's go-ahead first)
+
+An Entra External ID tenant is free up to 50,000 monthly users, but Microsoft requires an Azure account (subscription) to create one. Creating that account asks for a card. Nothing in these steps costs money. Do not turn on SMS.
+
+1. Sign in to https://entra.microsoft.com with the account that will own this (ideally the company's, decided with Nate).
+2. Create an **external tenant** (Microsoft Entra External ID). Region: United States.
+3. **Sign-in method:** "Email with one-time passcode". Turn **off** self-service sign-up if Entra offers it, or leave it on: our server still refuses anyone an owner hasn't added.
+4. **App registration 1, "RSB API":** Expose an API, scope `access_as_user`. Note its Application (client) ID.
+5. **App registration 2, "RSB Website":** platform "Single-page application", redirect `http://localhost:5173/auth` (later also the real website address + `/auth`). API permission: RSB API `access_as_user`.
+6. **App registration 3, "RSB Phone":** platform "Mobile and desktop", redirect the address the phone shows (Expo Go: `exp://<pc-address>:8081/--/auth`). API permission: RSB API `access_as_user`. On RSB API, add optional claim `email` to the access token.
+7. Copy the IDs into `.env` on the PC (the table above): server and website values in the main `.env`, phone values in `apps/mobile/.env` (Expo reads that folder). No passwords or secrets are involved: these are public IDs.

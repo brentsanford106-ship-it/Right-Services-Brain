@@ -8,6 +8,11 @@ import type { RouteDeps } from "./index.js";
 export async function meRoutes(app: FastifyInstance, { db }: RouteDeps): Promise<void> {
   app.get("/v1/me", async (req): Promise<MeResponse> => {
     const userId = requireUser(req);
+    // Already-registered people may have been added to another company since: accept those invites too.
+    if (req.identity?.email) {
+      const id = req.identity;
+      await db.anonymous((tx) => tx.query("SELECT app.claim_invites($1, $2, $3, $4)", [id.issuer, id.subject, id.email, id.name ?? null]));
+    }
     return db.asUser(userId, async (tx) => {
       const { rows: u } = await tx.query<{ id: string; display_name: string; email: string }>(
         "SELECT id, display_name, email FROM users WHERE id = $1",

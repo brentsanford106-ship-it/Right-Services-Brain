@@ -1,14 +1,17 @@
 import React, { useCallback, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { useApp } from "../../src/state";
 import { C, DevBanner, s } from "../../src/ui";
-import { errorText, type TeamMember, type TeamRole } from "../../src/team";
+import { errorText, type TeamInvite, type TeamMember, type TeamRole } from "../../src/team";
+import { Button } from "../../src/ui";
 
 /** Team & roles on the phone: everyone with members.read sees it; people with roles.manage can change it. */
 export default function Team() {
   const app = useApp();
   const canManage = app.can("roles.manage");
+  const canPeople = app.can("members.manage");
+  const [invites, setInvites] = useState<TeamInvite[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [roles, setRoles] = useState<TeamRole[]>([]);
   const [loading, setLoading] = useState(false);
@@ -23,8 +26,11 @@ export default function Team() {
         app.api.get<{ items: TeamMember[] }>(`${base}/team/members`),
         app.api.get<{ items: TeamRole[] }>(`${base}/team/roles`),
       ]);
-      setMembers(m.items);
+      setMembers(m.items.filter((x) => x.status !== "removed"));
       setRoles(r.items);
+      if (canPeople || canManage) {
+        setInvites((await app.api.get<{ items: TeamInvite[] }>(`${base}/team/invites`)).items);
+      }
       setNote(null);
       void app.refreshPermissions();
     } catch (e) {
@@ -32,7 +38,21 @@ export default function Team() {
     } finally {
       setLoading(false);
     }
-  }, [app, base]);
+  }, [app, base, canPeople, canManage]);
+
+  const withdraw = (inv: TeamInvite) =>
+    Alert.alert(`Withdraw ${inv.displayName}?`, `${inv.email} won't be able to sign in.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Withdraw",
+        style: "destructive",
+        onPress: () =>
+          void app.api
+            .delete(`${base}/team/invites/${inv.id}`)
+            .then(load)
+            .catch((e) => Alert.alert("Not changed", errorText(e))),
+      },
+    ]);
 
   useFocusEffect(
     useCallback(() => {
@@ -70,11 +90,27 @@ export default function Team() {
               last={i === members.length - 1}
               title={`${m.displayName}${m.isYou ? " (you)" : ""}`}
               sub={[m.roles.map((r) => r.name).join(", ") || "No role", m.status !== "active" ? m.status : ""].filter(Boolean).join(" · ")}
-              onPress={canManage ? () => router.push({ pathname: "/team/member/[id]", params: { id: m.membershipId, name: m.displayName } }) : undefined}
+              onPress={canManage || canPeople ? () => router.push({ pathname: "/team/member/[id]", params: { id: m.membershipId, name: m.displayName } }) : undefined}
             />
           ))}
         </View>
-        <Text style={[s.muted, { fontSize: 13 }]}>Adding new people needs the real sign-in system, which isn't built yet.</Text>
+        {canPeople ? <Button kind="secondary" title="Add Person" onPress={() => router.push("/team/add")} /> : null}
+        {invites.length > 0 ? (
+          <>
+            <Text style={[s.label, { marginTop: 8 }]}>ADDED, NOT SIGNED IN YET</Text>
+            <View style={[s.card, { paddingVertical: 0 }]}>
+              {invites.map((inv, i) => (
+                <Row
+                  key={inv.id}
+                  last={i === invites.length - 1}
+                  title={inv.displayName}
+                  sub={`${inv.email} · ${inv.roles.map((r) => r.name).join(", ")}${canPeople ? " · tap to withdraw" : ""}`}
+                  onPress={canPeople ? () => withdraw(inv) : undefined}
+                />
+              ))}
+            </View>
+          </>
+        ) : null}
 
         <Text style={[s.label, { marginTop: 8 }]}>ROLES</Text>
         <View style={[s.card, { paddingVertical: 0 }]}>

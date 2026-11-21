@@ -68,6 +68,7 @@ export default function RootLayout() {
           <Stack.Screen name="team/index" options={{ title: "Team & Roles" }} />
           <Stack.Screen name="team/member/[id]" options={{ title: "Roles" }} />
           <Stack.Screen name="team/role/[id]" options={{ title: "Role" }} />
+          <Stack.Screen name="team/add" options={{ title: "Add Person", presentation: "modal" }} />
         </Stack>
         </NavThemeProvider>
             </>

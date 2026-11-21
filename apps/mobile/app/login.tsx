@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import { ApiError, NetworkError, OwnerMismatchError } from "@rsb/photo-sync";
 import { fetch as expoFetch } from "expo/fetch";
 import { useApp } from "../src/state";
+import { entraConfig } from "../src/entra";
 import { Button, C, DevBanner, Logo, s } from "../src/ui";
 
 interface DevUser {
@@ -13,8 +14,10 @@ interface DevUser {
 }
 
 /**
- * DEVELOPMENT sign-in screen. It lets you pick a made-up test person. It is not secure and is
- * switched off on the server outside development. Real sign-in (Microsoft Entra External ID) replaces it.
+ * Sign-in screen.
+ * - "Sign in" (shown once the EXPO_PUBLIC_ENTRA_* settings exist) opens Microsoft's real sign-in page.
+ * - "Development sign-in" lets you pick a made-up test person. It is not secure and the server
+ *   switches it off outside development.
  */
 export default function Login() {
   const app = useApp();
@@ -47,25 +50,49 @@ export default function Login() {
     void loadUsers();
   }, [loadUsers]);
 
+  const real = entraConfig() !== null;
+
+  const afterSignIn = async (list: { organizationId: string; organizationName: string }[]) => {
+    if (list.length === 1) {
+      await app.chooseOrg(list[0]!.organizationId, list[0]!.organizationName);
+      router.replace("/home");
+    } else {
+      setOrgs(list);
+    }
+  };
+
+  const showError = (e: unknown) => {
+    if (e instanceof OwnerMismatchError) {
+      Alert.alert("Photos still uploading", `${e.message} Sign in as ${e.owner.displayName} so they can finish uploading.`);
+    } else if (e instanceof ApiError) setError(e.message);
+    else if (e instanceof NetworkError) setError("No connection to the server. Signing in needs a connection the first time.");
+    else setError(e instanceof Error ? e.message : "Sign-in failed.");
+  };
+
+  const signInReal = async () => {
+    setBusy("real");
+    setError(null);
+    try {
+      const r = await app.signInReal();
+      if (!r) return; // closed the Microsoft page
+      if (r.orgs.length === 0) setError("You haven't been added to a company yet. Ask an owner to add your email address.");
+      else await afterSignIn(r.orgs);
+    } catch (e) {
+      showError(e);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const pick = async (u: DevUser) => {
     setBusy(u.subject);
     setError(null);
     try {
       const { orgs: list } = await app.signIn(u.subject, u.displayName);
-      if (list.length === 0) {
-        setError(`${u.displayName} isn't an active member of any company.`);
-      } else if (list.length === 1) {
-        await app.chooseOrg(list[0]!.organizationId, list[0]!.organizationName);
-        router.replace("/home");
-      } else {
-        setOrgs(list);
-      }
+      if (list.length === 0) setError(`${u.displayName} isn't an active member of any company.`);
+      else await afterSignIn(list);
     } catch (e) {
-      if (e instanceof OwnerMismatchError) {
-        Alert.alert("Photos still uploading", `${e.message} Sign in as ${e.owner.displayName} so they can finish uploading.`);
-      } else if (e instanceof ApiError) setError(e.message);
-      else if (e instanceof NetworkError) setError("No connection to the server. Signing in needs a connection the first time.");
-      else setError(e instanceof Error ? e.message : "Sign-in failed.");
+      showError(e);
     } finally {
       setBusy(null);
     }
@@ -108,6 +135,14 @@ export default function Login() {
             <View style={{ alignItems: "center", backgroundColor: "#fff", borderRadius: 14, paddingVertical: 14, marginBottom: 20 }}>
               <Logo height={72} />
             </View>
+            {app.notice ? <Text style={[s.muted, { marginBottom: 12 }]}>{app.notice}</Text> : null}
+            {real ? (
+              <View style={{ marginBottom: 28 }}>
+                <Text style={s.h1}>Sign in</Text>
+                <Text style={[s.muted, { marginTop: 6 }]}>Use the email address your company owner added. Microsoft will send you a code.</Text>
+                <Button title="Sign in" busy={busy === "real"} disabled={!!busy} style={{ marginTop: 14 }} onPress={() => void signInReal()} />
+              </View>
+            ) : null}
             <Text style={s.h1}>Development sign-in</Text>
             <Text style={[s.muted, { marginTop: 6 }]}>Pick a made-up test person. This is only for testing and is not secure.</Text>
             <Text style={[s.label, { marginTop: 18 }]}>Server address (your PC)</Text>

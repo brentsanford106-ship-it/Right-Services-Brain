@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { PermissionInfo, TeamMember, TeamRole } from "@rsb/contracts";
+import type { PermissionInfo, TeamInvite, TeamMember, TeamRole } from "@rsb/contracts";
 import { api, ApiRequestError } from "../lib/api";
 import { useCan, useOrgContext, useOrgId, useOrgQuery } from "../lib/hooks";
 import { Status } from "../components/ui";
@@ -23,6 +23,9 @@ export function TeamPage() {
   const qc = useQueryClient();
   const ctx = useOrgContext();
   const canManage = useCan("roles.manage");
+  const canPeople = useCan("members.manage");
+  const invites = useOrgQuery<{ items: TeamInvite[] }>("team-invites", "/team/invites", canPeople || canManage);
+  const [adding, setAdding] = useState(false);
   const members = useOrgQuery<{ items: TeamMember[] }>("team-members", "/team/members");
   const roles = useOrgQuery<{ items: TeamRole[] }>("team-roles", "/team/roles");
   const perms = useOrgQuery<{ items: PermissionInfo[] }>("team-perms", "/team/permissions");
@@ -42,17 +45,21 @@ export function TeamPage() {
         A <strong>role</strong> is a set of things a person is allowed to do. Give each person one or more roles.
         {canManage ? " You can only give out permissions that you have yourself." : " Only owners can change roles."}
       </p>
-      <p className="muted small">
-        Adding new people needs the real sign-in system, which isn't built yet. For now you can manage the people already listed.
-      </p>
-
-      <h2>People</h2>
+      <div className="headrow">
+        <h2>People</h2>
+        {canPeople && !adding && <button onClick={() => setAdding(true)}>+ Add person</button>}
+      </div>
+      {adding && (
+        <Status query={roles}>
+          {(r) => <AddPerson roles={r.items} holds={holds} onDone={async (changed) => { setAdding(false); if (changed) await refresh(); }} />}
+        </Status>
+      )}
       <Status query={members}>
         {(m) => (
           <Status query={roles}>
             {(r) => (
               <ul className="list">
-                {m.items.map((p) => (
+                {m.items.filter((p) => p.status !== "removed").map((p) => (
                   <li key={p.membershipId} className="row static">
                     <div className="headrow">
                       <div>
@@ -61,9 +68,12 @@ export function TeamPage() {
                         {p.status !== "active" && <span className="badge warn">{p.status}</span>}
                         <div className="muted small">{p.jobTitle ?? ""}</div>
                       </div>
-                      {canManage && editingMember !== p.membershipId && (
-                        <button onClick={() => setEditingMember(p.membershipId)}>Change roles</button>
-                      )}
+                      <div className="actions">
+                        {canManage && editingMember !== p.membershipId && (
+                          <button onClick={() => setEditingMember(p.membershipId)}>Change roles</button>
+                        )}
+                        {canPeople && !p.isYou && editingMember !== p.membershipId && <AccessButtons member={p} roles={r.items} holds={holds} onChanged={refresh} />}
+                      </div>
                     </div>
                     {editingMember === p.membershipId ? (
                       <MemberRolesEditor
@@ -85,6 +95,17 @@ export function TeamPage() {
           </Status>
         )}
       </Status>
+
+      {(canPeople || canManage) && invites.data && invites.data.items.length > 0 && (
+        <>
+          <h3>Added, not signed in yet</h3>
+          <ul className="list">
+            {invites.data.items.map((i) => (
+              <InviteRow key={i.id} invite={i} canWithdraw={canPeople} onChanged={refresh} />
+            ))}
+          </ul>
+        </>
+      )}
 
       <div className="headrow">
         <h2>Roles</h2>
@@ -249,5 +270,120 @@ function RoleEditor({ role, catalog, holds, onDone }: { role?: TeamRole; catalog
         )}
       </div>
     </div>
+  );
+}
+
+function AddPerson({ roles, holds, onDone }: { roles: TeamRole[]; holds: (p: string) => boolean; onDone: (changed: boolean) => void }) {
+  const orgId = useOrgId();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(new Set(roles.filter((r) => r.key === "employee").map((r) => r.id)));
+  const add = useMutation({
+    mutationFn: () =>
+      api(`/v1/orgs/${orgId}/team/invites`, {
+        method: "POST",
+        body: { email: email.trim(), displayName: name.trim(), ...(jobTitle.trim() ? { jobTitle: jobTitle.trim() } : {}), roleIds: [...picked] },
+      }),
+    onSuccess: () => onDone(true),
+  });
+  const ready = name.trim() !== "" && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) && picked.size > 0;
+  return (
+    <div className="editor row static">
+      <p className="muted small">
+        They sign in with this email address. Microsoft sends them a code to prove it's theirs, so no password is needed. Nothing is emailed by us: tell them to open the app and tap Sign in.
+      </p>
+      <label>Name<input value={name} maxLength={200} onChange={(e) => setName(e.target.value)} placeholder="Full name" /></label>
+      <label>Email<input type="email" value={email} maxLength={320} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" /></label>
+      <label>Job title (optional)<input value={jobTitle} maxLength={120} onChange={(e) => setJobTitle(e.target.value)} placeholder="Technician" /></label>
+      <fieldset>
+        <legend>Roles</legend>
+        {roles.map((r) => {
+          const allowed = r.permissions.every(holds);
+          return (
+            <label key={r.id} className={`check ${allowed ? "" : "disabled"}`}>
+              <input
+                type="checkbox"
+                checked={picked.has(r.id)}
+                disabled={!allowed}
+                onChange={(e) => {
+                  const next = new Set(picked);
+                  if (e.target.checked) next.add(r.id);
+                  else next.delete(r.id);
+                  setPicked(next);
+                }}
+              />
+              {r.name}
+              {!allowed && <span className="muted small"> (has permissions you don't)</span>}
+            </label>
+          );
+        })}
+      </fieldset>
+      {add.error && <p className="error" role="alert">{errText(add.error)}</p>}
+      <div className="actions">
+        <button className="primary" disabled={!ready || add.isPending} onClick={() => add.mutate()}>Add person</button>
+        <button onClick={() => onDone(false)}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function InviteRow({ invite, canWithdraw, onChanged }: { invite: TeamInvite; canWithdraw: boolean; onChanged: () => Promise<void> }) {
+  const orgId = useOrgId();
+  const withdraw = useMutation({
+    mutationFn: () => api(`/v1/orgs/${orgId}/team/invites/${invite.id}`, { method: "DELETE" }),
+    onSuccess: onChanged,
+  });
+  return (
+    <li className="row static">
+      <div className="headrow">
+        <div>
+          <strong>{invite.displayName}</strong>
+          <span className="badge">Not signed in yet</span>
+          <div className="muted small">{invite.email} · {invite.roles.map((r) => r.name).join(", ")}</div>
+        </div>
+        {canWithdraw && (
+          <button
+            disabled={withdraw.isPending}
+            onClick={() => {
+              if (window.confirm(`Withdraw ${invite.displayName}? ${invite.email} won't be able to sign in.`)) withdraw.mutate();
+            }}
+          >
+            Withdraw
+          </button>
+        )}
+      </div>
+      {withdraw.error && <p className="error" role="alert">{errText(withdraw.error)}</p>}
+    </li>
+  );
+}
+
+function AccessButtons({ member, roles, holds, onChanged }: { member: TeamMember; roles: TeamRole[]; holds: (p: string) => boolean; onChanged: () => Promise<void> }) {
+  const orgId = useOrgId();
+  const set = useMutation({
+    mutationFn: (status: "active" | "suspended" | "removed") => api(`/v1/orgs/${orgId}/team/members/${member.membershipId}/status`, { method: "PATCH", body: { status } }),
+    onSuccess: onChanged,
+    onError: (e) => window.alert(errText(e)),
+  });
+  const allowed = member.roles.every((x) => (roles.find((r) => r.id === x.id)?.permissions ?? []).every(holds));
+  if (!allowed) return null;
+  return (
+    <>
+      {member.status === "suspended" ? (
+        <button disabled={set.isPending} onClick={() => set.mutate("active")}>Restore access</button>
+      ) : (
+        <button disabled={set.isPending} onClick={() => window.confirm(`Suspend ${member.displayName}? They lose access until you restore them, and their phone deletes this company's data (including photos it hasn't uploaded yet) next time it connects.`) && set.mutate("suspended")}>Suspend</button>
+      )}
+      <button
+        className="danger"
+        disabled={set.isPending}
+        onClick={() =>
+          window.confirm(`Remove ${member.displayName} from the company? They lose access straight away and their phone deletes this company's data, including photos it hasn't uploaded yet, next time it connects. To bring them back, add them again.`) &&
+          set.mutate("removed")
+        }
+      >
+        Remove
+      </button>
+    </>
   );
 }
