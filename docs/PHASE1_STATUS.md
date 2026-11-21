@@ -67,3 +67,9 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 - **Account revocation wipe** is triggered only when the server refuses to issue a token. Real-sign-in revocation is part of the real sign-in work.
 - **HEIC photos** are stored but have no preview (the app takes JPEG, so this only matters for future imports).
 - No independent security review has been done.
+
+## Decisions from JB (2026-11-21)
+
+- **Home banner photo:** the crew member pictured has agreed, so the photo stays.
+- **Logo:** keep the current logo file. The original high-resolution file may come later.
+- **Employees sharing photos:** up to each company's owners. "Share or download photos" is its own permission checkbox in Team & roles (website and phone). It is on for Owner, Manager and Employee by default, and owners can switch it off for any role.
