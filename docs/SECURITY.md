@@ -1,0 +1,48 @@
+# Security: what is in place, and what isn't
+
+This is a development build. **It is not secure for real data yet.** The items under "Must be done before real data" are blocking.
+
+## In place and tested
+
+**Company separation (multi-tenant)**
+- Every company's rows are protected by PostgreSQL row-level security, forced on every table, using the company set by the server for each request. The server's database login cannot bypass it and does not own the tables.
+- Cross-company references are blocked by composite foreign keys (a row can only point to rows of the same company).
+- Tests try reading, searching, editing and downloading another company's jobs and photos by exact id and by search; all return "not found".
+
+**Access rules**
+- Employees see only jobs they are assigned to and only change their own photos. Managers and owners can flag, note and re-stage any photo in their company. Downloading the full-resolution original needs a separate permission and is audited.
+- Every rule is enforced by the server. The apps only hide buttons.
+
+**Photo links are not shareable ("bearer") links**
+- There are no signed or public URLs. Every image download needs the signed-in person's token in the request header, and the server checks company, job access and permission on every download. Responses are marked `private, no-store`.
+- The web app downloads images with the token and shows them from memory. The iPhone app caches server images in memory only.
+
+**Encrypted offline storage on the iPhone**
+- Every photo, thumbnail, and photo detail file (job number, notes, GPS, flags) is encrypted with AES-256-GCM before being written to the app's private folder. The file's name is bound into the encryption so files can't be swapped.
+- Encryption is done by iOS (Apple CryptoKit, via expo-crypto).
+- **The key**: a random 256-bit key created on the phone, stored only in the iOS Keychain with "when unlocked, this device only". It is not in iCloud or computer backups, and it can't be copied to another phone. It is readable only while the phone is unlocked.
+- **Sign out**: the app warns if photos have not uploaded, then deletes all files **and destroys the key**, so anything missed can never be decrypted ("crypto-shredding"). A new key is created for the next person.
+- **Account disabled or removed**: when the server refuses to sign the person in again, the app does the same wipe. (Applies to the development sign-in today; real sign-in will add a server "revoked" signal.)
+- **Different person signs in** while photos are waiting: refused, so one person's photos are never sent under another person's name.
+- **Lost or stolen phone**: photos on the phone are encrypted and need the phone's passcode to unlock the key. The account should be disabled on the server; the phone's tokens then stop working.
+
+**Server hardening**
+- Strict input validation (unknown fields rejected), magic-byte check of image files, 25 MB limit, re-encoded previews with all metadata removed, original kept byte-for-byte with a SHA-256 checksum.
+- Logs never contain tokens, image bytes, notes or coordinates (tested).
+- Development sign-in, local disk storage and plain-HTTP database connections are refused by configuration in staging/production.
+- Append-only audit log (database triggers block edits and deletes).
+
+## Known limits (honest list)
+
+- **Unencrypted moments on the phone.** The camera writes each new photo to the app's private cache unencrypted; the app encrypts it and deletes that copy within about a second. During upload, a temporary decrypted copy sits in the app's private cache until the upload ends (and is cleared on the next app start if the app was closed mid-upload). Both are inside the app's sandbox, protected by iOS file protection, never in the Photos app.
+- **Development sign-in is not secure.** Anyone who can reach the server can pick any test person. That is why the server binds to `127.0.0.1` by default and why only synthetic data is allowed.
+- **Plain HTTP on your Wi-Fi during phone testing.** Fine for synthetic data; production will be HTTPS only.
+- **No independent security review yet.**
+
+## Must be done before real data
+
+1. Real sign-in (Microsoft Entra External ID; see `docs/AUTHENTICATION.md`), with token refresh and server-side revocation.
+2. Azure Blob Storage adapter (private container, no public access) and deployment over HTTPS only.
+3. Backups and a tested restore (database point-in-time restore; blob soft-delete and versioning).
+4. Test on real iPhones, including lost-phone and sign-out scenarios.
+5. Independent security review and fixes.
