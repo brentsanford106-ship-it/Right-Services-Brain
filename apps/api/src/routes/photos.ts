@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import {
   CreatePhotoFlagRequest,
   CreatePhotoRequest,
+  ExportPhotosRequest,
   FlagParams,
   JobParams,
   OrgParams,
@@ -11,6 +12,7 @@ import {
   PhotoSearchQuery,
   ResolvePhotoFlagRequest,
   UpdatePhotoRequest,
+  type DeletedPhoto,
   type Photo,
 } from "@rsb/contracts";
 import { inOrg } from "../lib/context.js";
@@ -38,6 +40,7 @@ interface PhotoRow {
   stored_at: Date | null;
   upload_status: Photo["uploadStatus"];
   uploaded_by: string;
+  uploaded_by_membership_id: string;
   open_flags: number;
   latitude: number | null;
   longitude: number | null;
@@ -47,7 +50,7 @@ interface PhotoRow {
 }
 
 const PHOTO_SELECT = `SELECT p.id, p.job_id, j.job_number, j.site_name, p.stage, p.caption, p.is_flagged, p.flagged_at, p.captured_at, p.stored_at, p.upload_status,
-                             u.display_name AS uploaded_by, p.latitude, p.longitude, p.width_px, p.height_px,
+                             u.display_name AS uploaded_by, p.uploaded_by_membership_id, p.latitude, p.longitude, p.width_px, p.height_px,
                              (p.preview_storage_key IS NOT NULL) AS has_preview,
                              (SELECT count(*)::int FROM photo_flags f WHERE f.organization_id = p.organization_id AND f.photo_id = p.id AND f.status = 'open') AS open_flags
                         FROM photos p
@@ -55,7 +58,11 @@ const PHOTO_SELECT = `SELECT p.id, p.job_id, j.job_number, j.site_name, p.stage,
                         JOIN organization_memberships m ON m.organization_id = p.organization_id AND m.id = p.uploaded_by_membership_id
                         JOIN users u ON u.id = m.user_id`;
 
-const toPhoto = (r: PhotoRow): Photo => ({
+/** Everyone may delete their own photos; photos.delete_any lets owners/managers delete any photo they can see. */
+const mayDelete = (ctx: OrgContext, uploadedBy: string) =>
+  (uploadedBy === ctx.membershipId && ctx.has("photos.upload")) || ctx.has("photos.delete_any");
+
+const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
   id: r.id,
   jobId: r.job_id,
   jobNumber: r.job_number,
@@ -74,6 +81,7 @@ const toPhoto = (r: PhotoRow): Photo => ({
   widthPx: r.width_px,
   heightPx: r.height_px,
   hasPreview: r.has_preview,
+  canDelete: mayDelete(ctx, r.uploaded_by_membership_id),
 });
 
 /** Loads a photo the caller is allowed to see (via its job), or throws 404. */
@@ -107,7 +115,7 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
         `${PHOTO_SELECT} WHERE p.job_id = $1 AND p.deleted_at IS NULL ORDER BY p.captured_at`,
         [jobId],
       );
-      return { items: rows.map(toPhoto) };
+      return { items: rows.map((r) => toPhoto(r, ctx)) };
     });
   });
 
@@ -146,7 +154,7 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
           ORDER BY p.captured_at DESC LIMIT $${params.length}`,
         params,
       );
-      return { items: rows.map((r) => ({ ...toPhoto(r), distanceM: r.distance_m === null ? null : Math.round(r.distance_m) })) };
+      return { items: rows.map((r) => ({ ...toPhoto(r, ctx), distanceM: r.distance_m === null ? null : Math.round(r.distance_m) })) };
     });
   });
 
@@ -172,7 +180,7 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
       );
       if (created) await recordAudit(tx, ctx, "photo.recorded", "photo", id, { jobId, hasLocation: body.latitude !== undefined });
       const { rows } = await tx.query<PhotoRow>(`${PHOTO_SELECT} WHERE p.id = $1`, [id]);
-      return { photo: toPhoto(rows[0]!), created };
+      return { photo: toPhoto(rows[0]!, ctx), created };
     });
     return reply.status(result.created ? 201 : 200).send(result.photo);
   });
@@ -271,7 +279,67 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
       const action = body.flagged === true ? "photo.flagged" : body.flagged === false ? "photo.unflagged" : "photo.updated";
       await recordAudit(tx, ctx, action, "photo", photoId, { fields: Object.keys(body) });
       const { rows } = await tx.query<PhotoRow>(`${PHOTO_SELECT} WHERE p.id = $1`, [photoId]);
-      return toPhoto(rows[0]!);
+      return toPhoto(rows[0]!, ctx);
+    });
+  });
+
+  // ------------------------------------------------------------ delete / restore (soft delete; files are kept)
+  app.delete("/v1/orgs/:orgId/photos/:photoId", async (req, reply) => {
+    const { orgId, photoId } = parse(PhotoParams, req.params);
+    await inOrg(db, req, orgId, async (tx, ctx) => {
+      const p = await loadVisiblePhoto(tx, ctx, photoId);
+      if (!mayDelete(ctx, p.uploaded_by_membership_id)) throw new HttpError("forbidden");
+      await tx.query(`UPDATE photos SET deleted_at = now(), deleted_by_membership_id = $2 WHERE id = $1 AND deleted_at IS NULL`, [photoId, ctx.membershipId]);
+      await recordAudit(tx, ctx, "photo.deleted", "photo", photoId, { jobId: p.job_id });
+    });
+    return reply.status(204).send();
+  });
+
+  app.post("/v1/orgs/:orgId/photos/:photoId/restore", async (req) => {
+    const { orgId, photoId } = parse(PhotoParams, req.params);
+    return inOrg(db, req, orgId, async (tx, ctx) => {
+      ctx.require("photos.delete_any");
+      const { rows: found } = await tx.query<{ job_id: string }>(`SELECT job_id FROM photos WHERE id = $1 AND deleted_at IS NOT NULL`, [photoId]);
+      if (!found[0]) throw notFound();
+      await assertJobAccess(tx, ctx, found[0].job_id);
+      await tx.query(`UPDATE photos SET deleted_at = NULL, deleted_by_membership_id = NULL WHERE id = $1`, [photoId]);
+      await recordAudit(tx, ctx, "photo.restored", "photo", photoId, { jobId: found[0].job_id });
+      const { rows } = await tx.query<PhotoRow>(`${PHOTO_SELECT} WHERE p.id = $1`, [photoId]);
+      return toPhoto(rows[0]!, ctx);
+    });
+  });
+
+  app.get("/v1/orgs/:orgId/jobs/:jobId/photos/deleted", async (req) => {
+    const { orgId, jobId } = parse(JobParams, req.params);
+    return inOrg(db, req, orgId, async (tx, ctx) => {
+      ctx.require("photos.delete_any");
+      await assertJobAccess(tx, ctx, jobId);
+      const { rows } = await tx.query<PhotoRow & { deleted_at: Date; deleted_by: string }>(
+        `SELECT x.*, p2.deleted_at, du.display_name AS deleted_by
+           FROM (${PHOTO_SELECT} WHERE p.job_id = $1 AND p.deleted_at IS NOT NULL) x
+           JOIN photos p2 ON p2.id = x.id
+           JOIN organization_memberships dm ON dm.organization_id = p2.organization_id AND dm.id = p2.deleted_by_membership_id
+           JOIN users du ON du.id = dm.user_id
+          ORDER BY p2.deleted_at DESC LIMIT 500`,
+        [jobId],
+      );
+      const items: DeletedPhoto[] = rows.map((r) => ({ ...toPhoto(r, ctx), deletedAt: r.deleted_at.toISOString(), deletedBy: r.deleted_by }));
+      return { items };
+    });
+  });
+
+  // ------------------------------------------------------------ export (photos leaving the app are always audited)
+  app.post("/v1/orgs/:orgId/photos/exports", async (req) => {
+    const { orgId } = parse(OrgParams, req.params);
+    const body = parse(ExportPhotosRequest, req.body);
+    return inOrg(db, req, orgId, async (tx, ctx) => {
+      ctx.require("photos.export");
+      const ids = [...new Set(body.photoIds)];
+      for (const id of ids) {
+        await loadVisiblePhoto(tx, ctx, id);
+        await recordAudit(tx, ctx, "photo.exported", "photo", id, { channel: body.channel });
+      }
+      return { recorded: ids.length };
     });
   });
 

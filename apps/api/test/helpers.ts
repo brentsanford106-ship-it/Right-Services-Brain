@@ -27,6 +27,7 @@ export interface TestApp {
     get(url: string): Promise<Res>;
     post(url: string, body?: unknown): Promise<Res>;
     patch(url: string, body: unknown): Promise<Res>;
+    del(url: string): Promise<Res>;
     put(url: string, data: Buffer, contentType: string): Promise<Res>;
     raw(url: string): Promise<{ status: number; data: Buffer; headers: Record<string, unknown> }>;
   };
@@ -64,7 +65,7 @@ export async function createTestApp(overrides: Record<string, string> = {}): Pro
   const app = await buildApp({ config, db, devAuth: config.devAuthEnabled ? devAuth : null, logStream, storage });
   await app.ready();
 
-  const send = async (method: "GET" | "POST" | "PATCH", url: string, token: string | null, body?: unknown): Promise<Res> => {
+  const send = async (method: "GET" | "POST" | "PATCH" | "DELETE", url: string, token: string | null, body?: unknown): Promise<Res> => {
     const res = await app.inject({
       method,
       url,
@@ -84,6 +85,7 @@ export async function createTestApp(overrides: Record<string, string> = {}): Pro
       get: async (url) => send("GET", url, await devAuth.issue(subject)),
       post: async (url, body) => send("POST", url, await devAuth.issue(subject), body ?? {}),
       patch: async (url, body) => send("PATCH", url, await devAuth.issue(subject), body),
+      del: async (url) => send("DELETE", url, await devAuth.issue(subject)),
       put: async (url, data, contentType) => {
         const res = await app.inject({ method: "PUT", url, headers: { authorization: `Bearer ${await devAuth.issue(subject)}`, "content-type": contentType }, payload: data });
         return { status: res.statusCode, body: res.body ? JSON.parse(res.body) : null, headers: res.headers };

@@ -144,8 +144,18 @@ export const Photo = z.object({
   heightPx: z.number().int().nullable(),
   hasPreview: z.boolean(),
   storedAt: z.string().nullable(),
+  /** Whether the person asking may delete this photo (own photo, or photos.delete_any). For hiding buttons only. */
+  canDelete: z.boolean(),
 });
 export type Photo = z.infer<typeof Photo>;
+
+export const PhotoIdsRequest = z.strictObject({ photoIds: z.array(Uuid).min(1).max(200) });
+export type PhotoIdsRequest = z.infer<typeof PhotoIdsRequest>;
+export const ExportPhotosRequest = PhotoIdsRequest.extend({ channel: z.enum(["share_sheet", "download"]) });
+export type ExportPhotosRequest = z.infer<typeof ExportPhotosRequest>;
+
+export const DeletedPhoto = Photo.extend({ deletedAt: z.string(), deletedBy: z.string() });
+export type DeletedPhoto = z.infer<typeof DeletedPhoto>;
 
 /**
  * Step 1 of an upload: record the photo's details. Step 2 sends the image bytes
