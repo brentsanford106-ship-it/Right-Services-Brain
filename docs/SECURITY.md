@@ -46,3 +46,10 @@ This is a development build. **It is not secure for real data yet.** The items u
 3. Backups and a tested restore (database point-in-time restore; blob soft-delete and versioning).
 4. Test on real iPhones, including lost-phone and sign-out scenarios.
 5. Independent security review and fixes.
+
+## Deleting and sharing photos (added 2026-11-21)
+
+- **Delete is a soft delete.** A deleted photo disappears from every screen and every API answer, but its record and files are kept. Owners and managers (`photos.delete_any`) see it under **Recently deleted** on the job's web page and can restore it. Everyone can delete photos they took themselves; only owners and managers can delete other people's photos. Every delete and restore is in the audit log. Permanently removing old deleted photos is not built yet.
+- **Photos never uploaded** and deleted on the phone are erased from the phone for good (there is no server copy).
+- **Sharing/exporting takes a photo outside the app's protection.** Once a photo is sent by Messages or Mail, or downloaded, the company no longer controls that copy. To limit the risk: sharing needs the `photos.export` permission (on for owners, managers and employees by default; it can be removed per role), every shared or downloaded photo is recorded in the audit log *before* it leaves, the shared copy is the display-size JPEG with location data removed (not the original), and on the phone the temporary unencrypted copy is deleted as soon as the share screen closes (and the scratch folder is emptied at every app start).
+- Only photos that have finished uploading can be shared, and sharing needs a connection, so the audit record cannot be skipped.

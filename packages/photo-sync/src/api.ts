@@ -112,6 +112,17 @@ export class HttpClient implements PhotoApi {
   patch<T>(path: string, body: unknown): Promise<T> {
     return this.send<T>("PATCH", path, body);
   }
+  delete<T = null>(path: string): Promise<T> {
+    return this.send<T>("DELETE", path);
+  }
+  /** Base address of the server, for platform code that downloads files itself (e.g. to share a photo). */
+  get baseUrl(): string {
+    return this.o.baseUrl;
+  }
+  /** Current access token, for platform downloads that must carry it. */
+  accessToken(): Promise<string> {
+    return this.token();
+  }
 
   createPhoto(orgId: string, jobId: string, body: CreatePhotoBody): Promise<ServerPhoto> {
     return this.post(`/v1/orgs/${orgId}/jobs/${jobId}/photos`, body);

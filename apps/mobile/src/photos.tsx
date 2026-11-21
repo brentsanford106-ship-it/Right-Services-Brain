@@ -17,6 +17,8 @@ export interface ServerPhoto {
   uploadStatus: "pending" | "stored" | "rejected";
   uploadedBy: string;
   hasPreview: boolean;
+  /** Server's answer to "may I delete this?" (for hiding buttons; the server still checks). */
+  canDelete?: boolean;
   latitude: number | null;
   longitude: number | null;
 }

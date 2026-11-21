@@ -4,6 +4,7 @@ import { Stack, router, useLocalSearchParams } from "expo-router";
 import { NOTE_MAX, type Stage } from "@rsb/photo-sync";
 import { useApp, useQueueVersion, useSyncStatus } from "../../src/state";
 import { LocalImage, ServerImage, mergeGallery, type ServerPhoto } from "../../src/photos";
+import { canDeleteItem, confirmDelete, sharePhotos } from "../../src/photoActions";
 import { Button, C, Chip, DevBanner, SyncPill, STAGES, s } from "../../src/ui";
 
 /**
@@ -19,6 +20,7 @@ export default function Review() {
   const [server, setServer] = useState<ServerPhoto[]>([]);
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     void app.cache.get<ServerPhoto[]>(`photos-${jobId}`).then((v) => setServer(v ?? []));
@@ -145,6 +147,33 @@ export default function Review() {
             ) : (
               <Text style={s.muted}>Location: not recorded</Text>
             )}
+          </View>
+
+          <View style={{ flexDirection: "row", gap: 12 }}>
+            <Button
+              title={sharing ? "Preparing…" : "Share"}
+              kind="secondary"
+              style={{ flex: 1 }}
+              onPress={() => {
+                setSharing(true);
+                void sharePhotos(app, [item], item.local?.jobNumber ?? item.server?.jobNumber ?? "job").finally(() => setSharing(false));
+              }}
+            />
+            {canDeleteItem(item) ? (
+              <Button
+                title="Delete"
+                kind="secondary"
+                style={{ flex: 1, borderColor: C.flag }}
+                onPress={() =>
+                  confirmDelete(app, [item], (n) => {
+                    if (n) {
+                      pendingNote.current = null; // nothing to save on a deleted photo
+                      router.back();
+                    }
+                  })
+                }
+              />
+            ) : null}
           </View>
 
           <Button title="Back to camera / gallery" kind="secondary" onPress={() => router.back()} />

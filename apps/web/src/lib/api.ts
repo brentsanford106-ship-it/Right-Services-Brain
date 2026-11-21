@@ -66,7 +66,7 @@ async function send(path: string, init: { method?: string; body?: unknown }, ret
   return res;
 }
 
-export async function api<T>(path: string, init: { method?: "GET" | "POST" | "PATCH"; body?: unknown } = {}): Promise<T> {
+export async function api<T>(path: string, init: { method?: "GET" | "POST" | "PATCH" | "DELETE"; body?: unknown } = {}): Promise<T> {
   const res = await send(path, init);
   const data: unknown = await res.json().catch(() => null);
   if (!res.ok) {

@@ -75,3 +75,13 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .brandbox { background: #fff; border-radius: 12px; padding: 16px; display: flex; justify-content: center; margin: 8px 0 16px; border: 1px solid var(--line); }
 .logo-full { max-width: 100%; height: 80px; object-fit: contain; }
 .sidenav a.active { box-shadow: inset 3px 0 0 #d40e3b; }
+/* Select mode (like iPhone Photos) */
+.tile { position: relative; }
+.tile .pick { position: absolute; right: 8px; bottom: 8px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,.3); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 13px; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.tile .pick.on { background: #0a84ff; }
+.tile.picked .thumb { opacity: .75; }
+.selectbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; margin: 8px 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+.selectbar .spacer { flex: 1; }
+button.danger { color: #fff; background: #b3261e; border-color: #b3261e; }
+button.danger:disabled { opacity: .5; }
+.deleted { margin-top: 24px; } .deleted summary { cursor: pointer; font-weight: 600; } .deleted .row { gap: 6px; }

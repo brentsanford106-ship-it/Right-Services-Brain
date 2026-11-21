@@ -71,14 +71,34 @@ export function FilterBar({ value, onChange, items }: { value: Filter; onChange:
   );
 }
 
-export function PhotoGrid({ items, onOpen, showJob }: { items: Photo[]; onOpen: (index: number) => void; showJob?: boolean }) {
+/** Records the export on the server, then saves each photo (display-size JPEG, no location data) to the computer. */
+export async function downloadPhotos(orgId: string, photos: Photo[]): Promise<void> {
+  const ready = photos.filter((p) => p.uploadStatus === "stored");
+  if (!ready.length) throw new Error("None of these photos have finished uploading yet.");
+  await api(`/v1/orgs/${orgId}/photos/exports`, { method: "POST", body: { photoIds: ready.map((p) => p.id), channel: "download" } });
+  for (const [n, p] of ready.entries()) {
+    const url = await fetchImage(`/v1/orgs/${orgId}/photos/${p.id}/content`);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `RightServices-${p.jobNumber}-${n + 1}.jpg`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+}
+
+export function PhotoGrid({ items, onOpen, showJob, selected, onToggle }: { items: Photo[]; onOpen: (index: number) => void; showJob?: boolean; selected?: Set<string>; onToggle?: (id: string) => void }) {
   const orgId = useOrgId();
   if (items.length === 0) return <p className="muted">No photos match.</p>;
   return (
     <ul className="grid" aria-label="Photos">
       {items.map((p, i) => (
-        <li key={p.id} className={`tile ${p.flagged ? "flagged" : ""}`}>
-          <button onClick={() => onOpen(i)} aria-label={`Open ${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}${p.flagged ? ", flagged" : ""}`}>
+        <li key={p.id} className={`tile ${p.flagged ? "flagged" : ""} ${selected?.has(p.id) ? "picked" : ""}`}>
+          <button
+            onClick={() => (selected && onToggle ? onToggle(p.id) : onOpen(i))}
+            aria-pressed={selected ? selected.has(p.id) : undefined}
+            aria-label={`${selected ? "Select" : "Open"} ${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}${p.flagged ? ", flagged" : ""}`}
+          >
+            {selected && <span className={`pick ${selected.has(p.id) ? "on" : ""}`} aria-hidden>{selected.has(p.id) ? "✓" : ""}</span>}
             {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content`} alt="" className="thumb" /> : <div className="imgph thumb">{p.uploadStatus === "pending" ? "File not uploaded yet" : "No preview"}</div>}
             {p.flagged && <span className="flagmark" aria-hidden>⚑</span>}
           </button>
@@ -102,6 +122,7 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
   const p = items[index];
   const canOriginal = useCan("photos.read_original");
   const canManage = useCan("photo_flags.manage");
+  const canExport = useCan("photos.export");
   const [note, setNote] = useState(p?.note ?? "");
   const [err, setErr] = useState<string | null>(null);
 
@@ -127,6 +148,17 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
       await Promise.all(invalidate.map((k) => qc.invalidateQueries({ queryKey: k })));
     },
     onError: (e) => setErr(e instanceof ApiRequestError && e.status === 403 ? "You don't have permission to change this photo." : "Couldn't save. Try again."),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => api(`/v1/orgs/${orgId}/photos/${p!.id}`, { method: "DELETE" }),
+    onSuccess: async () => {
+      setErr(null);
+      if (items.length <= 1) onClose();
+      else if (index === items.length - 1) onIndex(index - 1);
+      await Promise.all(invalidate.map((k) => qc.invalidateQueries({ queryKey: k })));
+    },
+    onError: () => setErr("Couldn't delete this photo."),
   });
 
   const downloadOriginal = async () => {
@@ -189,6 +221,20 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
           </button>
         )}
         {err && <p className="error" role="alert">{err}</p>}
+        {canExport && p.uploadStatus === "stored" && (
+          <button onClick={() => void downloadPhotos(orgId, [p]).catch(() => setErr("Couldn't download this photo."))}>Download photo</button>
+        )}
+        {p.canDelete && (
+          <button
+            className="danger"
+            disabled={remove.isPending}
+            onClick={() => {
+              if (window.confirm("Delete this photo? An owner or manager can restore it from Recently deleted.")) remove.mutate();
+            }}
+          >
+            Delete photo
+          </button>
+        )}
         {canOriginal && p.uploadStatus === "stored" && (
           <button onClick={() => void downloadOriginal()}>Download original (full resolution)</button>
         )}
