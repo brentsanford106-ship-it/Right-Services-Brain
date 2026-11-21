@@ -1,10 +1,10 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { FlatList, Pressable, RefreshControl, ScrollView, Text, View, useWindowDimensions } from "react-native";
+import { Alert, FlatList, Pressable, RefreshControl, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { NetworkError } from "@rsb/photo-sync";
-import { useApp, useQueueVersion, useSyncStatus } from "../../../src/state";
+import { ApiError, NetworkError } from "@rsb/photo-sync";
+import { useApp, useQueueVersion, useSyncStatus, type Job } from "../../../src/state";
 import { applyFilter, mergeGallery, LocalImage, ServerImage, type Filter, type GalleryItem, type ServerPhoto } from "../../../src/photos";
-import { C, Chip, DevBanner, Empty, FlagBadge, SyncPill, s } from "../../../src/ui";
+import { C, Chip, DevBanner, Empty, FlagBadge, JOB_STATUSES, StatusPill, SyncPill, s } from "../../../src/ui";
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
@@ -23,12 +23,21 @@ export default function JobGallery() {
   const [filter, setFilter] = useState<Filter>("all");
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [job, setJob] = useState<Job | null>(null);
   const { width } = useWindowDimensions();
   const cols = width >= 700 ? 5 : 3; // iPad shows more per row
   const size = Math.floor((width - 4 * (cols + 1)) / cols);
 
   const load = useCallback(async () => {
     setLoading(true);
+    // Job details (status etc.): from the server when online, otherwise the copy saved on this phone.
+    app.api
+      .get<Job>(`/v1/orgs/${app.session!.orgId}/jobs/${jobId}`)
+      .then(async (j) => {
+        setJob(j);
+        await app.cache.put(`job-${jobId}`, j);
+      })
+      .catch(async () => setJob((await app.cache.get<Job>(`job-${jobId}`)) ?? null));
     try {
       const res = await app.api.get<{ items: ServerPhoto[] }>(`/v1/orgs/${app.session!.orgId}/jobs/${jobId}/photos`);
       setServer(res.items);
@@ -54,6 +63,31 @@ export default function JobGallery() {
   const waiting = all.filter((i) => i.state === "waiting" || i.state === "uploading").length;
   const attention = all.filter((i) => i.state === "needs_attention").length;
 
+  const changeStatus = () => {
+    if (!job) return;
+    Alert.alert("Job status", `${job.jobNumber}: choose a new status. This needs a connection.`, [
+      ...JOB_STATUSES.filter((x) => x.value !== job.status).map((x) => ({
+        text: x.label,
+        onPress: () => {
+          app.api
+            .patch<Job>(`/v1/orgs/${app.session!.orgId}/jobs/${jobId}`, { status: x.value })
+            .then(async () => {
+              const next = { ...job, status: x.value };
+              setJob(next);
+              await app.cache.put(`job-${jobId}`, next);
+            })
+            .catch((e) =>
+              Alert.alert(
+                "Status not changed",
+                e instanceof NetworkError ? "No connection. Try again when you have signal." : e instanceof ApiError ? e.message : "Please try again.",
+              ),
+            );
+        },
+      })),
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
   const open = (i: GalleryItem) =>
     router.push({ pathname: "/photo/[key]", params: { key: i.key, jobId, ids: items.map((x) => x.key).join(",") } });
 
@@ -73,7 +107,12 @@ export default function JobGallery() {
       />
       <DevBanner />
       <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-        {title ? <Text style={{ fontSize: 16, color: C.text, fontWeight: "600" }}>{title}</Text> : null}
+        {title || job ? <Text style={{ fontSize: 16, color: C.text, fontWeight: "600" }}>{job?.title ?? title}</Text> : null}
+        {job ? (
+          <View style={{ marginTop: 6 }}>
+            <StatusPill status={job.status} onPress={app.can("jobs.manage") ? changeStatus : undefined} />
+          </View>
+        ) : null}
         <Text style={[s.muted, { marginTop: 2 }]}>
           {all.length} photo{all.length === 1 ? "" : "s"}
           {waiting ? ` · ${waiting} waiting to upload` : ""}

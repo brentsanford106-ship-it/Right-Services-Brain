@@ -3,7 +3,7 @@ import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from "reac
 import { Stack, router, useFocusEffect } from "expo-router";
 import { NetworkError } from "@rsb/photo-sync";
 import { useApp, useQueueVersion, useSyncStatus, type Job } from "../../src/state";
-import { C, DevBanner, Empty, s } from "../../src/ui";
+import { C, DevBanner, Empty, StatusPill, s } from "../../src/ui";
 
 function matches(j: Job, q: string): boolean {
   const n = q.trim().toLowerCase();
@@ -117,6 +117,9 @@ export default function Jobs() {
               </View>
               <Text style={{ fontSize: 15, color: C.text, marginTop: 2 }}>{item.title}</Text>
               {item.siteName ? <Text style={[s.muted, { marginTop: 2 }]}>{item.siteName}</Text> : null}
+              <View style={{ marginTop: 8 }}>
+                <StatusPill status={item.status} />
+              </View>
             </Pressable>
           );
         }}

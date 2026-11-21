@@ -3,14 +3,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } fro
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { ApiError, NetworkError } from "@rsb/photo-sync";
 import { useApp, type Job } from "../../src/state";
-import { Button, C, Chip, s } from "../../src/ui";
-
-const STATUSES = [
-  { value: "planned", label: "Planned" },
-  { value: "active", label: "Active" },
-  { value: "on_hold", label: "On hold" },
-  { value: "completed", label: "Completed" },
-];
+import { Button, C, Chip, JOB_STATUSES, s } from "../../src/ui";
 
 /** Create a job, or edit one when opened with ?jobId=. Needs a connection (jobs are created on the server). */
 export default function EditJob() {
@@ -89,7 +82,7 @@ export default function EditJob() {
         <View>
           <Text style={s.label}>Status</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-            {STATUSES.map((st) => (
+            {JOB_STATUSES.map((st) => (
               <Chip key={st.value} label={st.label} active={status === st.value} onPress={() => setStatus(st.value)} />
             ))}
           </View>

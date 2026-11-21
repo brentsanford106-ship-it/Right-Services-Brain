@@ -26,6 +26,42 @@ export const STAGES: { value: Stage; label: string }[] = [
   { value: "after", label: "After" },
 ];
 
+export const JOB_STATUSES = [
+  { value: "planned", label: "Planned" },
+  { value: "active", label: "Active" },
+  { value: "on_hold", label: "On hold" },
+  { value: "completed", label: "Completed" },
+] as const;
+
+export const jobStatusLabel = (v: string) => JOB_STATUSES.find((x) => x.value === v)?.label ?? v;
+
+const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
+  planned: { bg: "#e8eefb", fg: "#1f4f9f" },
+  active: { bg: "#e3f5ea", fg: "#127a43" },
+  on_hold: { bg: "#fff3dc", fg: "#9a5b00" },
+  completed: { bg: "#eceef1", fg: "#4a5563" },
+};
+
+/** Small coloured label showing a job's status. Shows "▾" when it can be tapped to change. */
+export function StatusPill(props: { status: string; onPress?: () => void }) {
+  const c = STATUS_COLORS[props.status] ?? STATUS_COLORS.completed!;
+  const body = (
+    <View style={{ alignSelf: "flex-start", backgroundColor: c.bg, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 }}>
+      <Text style={{ color: c.fg, fontWeight: "600", fontSize: 13 }}>
+        {jobStatusLabel(props.status)}
+        {props.onPress ? "  ▾" : ""}
+      </Text>
+    </View>
+  );
+  return props.onPress ? (
+    <Pressable accessibilityRole="button" accessibilityLabel={`Job status: ${jobStatusLabel(props.status)}. Tap to change.`} hitSlop={8} onPress={props.onPress}>
+      {body}
+    </Pressable>
+  ) : (
+    body
+  );
+}
+
 export function DevBanner() {
   return (
     <View style={s.dev} accessibilityRole="alert">
