@@ -1,5 +1,5 @@
 import React from "react";
-import { Stack } from "expo-router";
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider as NavThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppProvider } from "../src/state";
@@ -13,6 +13,25 @@ export default function RootLayout() {
         <ThemeProvider>
           {(scheme) => (
             <>
+        {/*
+          The navigation theme decides the light/dark look of native header parts (Back button,
+          header buttons on iOS 26). Without it they stay light in dark mode and become unreadable.
+        */}
+        <NavThemeProvider
+          value={{
+            ...(scheme === "dark" ? DarkTheme : DefaultTheme),
+            dark: scheme === "dark",
+            colors: {
+              ...(scheme === "dark" ? DarkTheme : DefaultTheme).colors,
+              primary: C.link,
+              background: C.bg,
+              card: C.card,
+              text: C.text,
+              border: C.line,
+              notification: C.flag,
+            },
+          }}
+        >
         <StatusBar style={scheme === "dark" ? "light" : "dark"} />
         {/*
           iOS 26 draws see-through ("glass") headers by default, and screen content then slides
@@ -28,6 +47,10 @@ export default function RootLayout() {
             headerTintColor: C.link,
             headerTitleStyle: { color: C.ink },
             contentStyle: { backgroundColor: C.bg },
+            headerUserInterfaceStyle: scheme,
+            // iOS 26 blurs/dims scroll content near the header; with a solid header it only hid
+            // the filter buttons (dark smudge in dark mode), so it is switched off.
+            scrollEdgeEffects: { top: "hidden", bottom: "hidden", left: "hidden", right: "hidden" },
           }}
         >
           <Stack.Screen name="index" options={{ headerShown: false }} />
@@ -41,6 +64,7 @@ export default function RootLayout() {
           <Stack.Screen name="sync" options={{ title: "Uploads" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />
         </Stack>
+        </NavThemeProvider>
             </>
           )}
         </ThemeProvider>
