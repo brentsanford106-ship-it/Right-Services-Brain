@@ -61,6 +61,7 @@ export default function RootLayout() {
           <Stack.Screen name="jobs/edit" options={{ title: "Job", presentation: "modal" }} />
           <Stack.Screen name="jobs/[jobId]/index" options={{ title: "Photos" }} />
           <Stack.Screen name="jobs/[jobId]/camera" options={{ headerShown: false, animation: "fade" }} />
+          <Stack.Screen name="jobs/[jobId]/deleted" options={{ title: "Recently Deleted" }} />
           <Stack.Screen name="photo/[key]" options={{ title: "Photo" }} />
           <Stack.Screen name="sync" options={{ title: "Uploads" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />

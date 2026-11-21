@@ -29,12 +29,19 @@ export default function JobGallery() {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busyAction, setBusyAction] = useState(false);
+  // How many photos are in Recently deleted; null when this person can't restore (or we're offline).
+  const [deletedCount, setDeletedCount] = useState<number | null>(null);
   const { width } = useWindowDimensions();
   const cols = width >= 700 ? 5 : 3; // iPad shows more per row
   const size = Math.floor((width - 4 * (cols + 1)) / cols);
 
   const load = useCallback(async () => {
     setLoading(true);
+    // Recently deleted: the server only answers for people allowed to restore photos.
+    app.api
+      .get<{ items: unknown[] }>(`/v1/orgs/${app.session!.orgId}/jobs/${jobId}/photos/deleted`)
+      .then((r) => setDeletedCount(r.items.length))
+      .catch(() => setDeletedCount(null));
     // Job details (status etc.): from the server when online, otherwise the copy saved on this phone.
     app.api
       .get<Job>(`/v1/orgs/${app.session!.orgId}/jobs/${jobId}`)
@@ -166,6 +173,16 @@ export default function JobGallery() {
           {attention ? ` · ${attention} need attention` : ""}
         </Text>
         {note ? <Text style={[s.muted, { marginTop: 6 }]}>{note}</Text> : null}
+        {deletedCount ? (
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={8}
+            style={{ marginTop: 6, alignSelf: "flex-start" }}
+            onPress={() => router.push({ pathname: "/jobs/[jobId]/deleted", params: { jobId, jobNumber: job?.jobNumber ?? jobNumber ?? "" } })}
+          >
+            <Text style={{ color: C.link, fontWeight: "600" }}>🗑  Recently Deleted ({deletedCount}) ›</Text>
+          </Pressable>
+        ) : null}
       </View>
       {/* flexShrink 0: with many photos the list below used to squeeze this row and cut the labels off. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ padding: 12, paddingHorizontal: 16 }}>

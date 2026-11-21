@@ -85,14 +85,14 @@ const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
 });
 
 /** Loads a photo the caller is allowed to see (via its job), or throws 404. */
-async function loadVisiblePhoto(tx: Tx, ctx: OrgContext, photoId: string) {
+async function loadVisiblePhoto(tx: Tx, ctx: OrgContext, photoId: string, includeDeleted = false) {
   const { rows } = await tx.query<{
     job_id: string; uploaded_by_membership_id: string; upload_status: string; content_type: string;
     storage_key: string | null; preview_storage_key: string | null; original_sha256: string | null;
   }>(
     `SELECT job_id, uploaded_by_membership_id, upload_status, content_type, storage_key, preview_storage_key, original_sha256
-       FROM photos WHERE id = $1 AND deleted_at IS NULL`,
-    [photoId],
+       FROM photos WHERE id = $1 AND ($2::boolean OR deleted_at IS NULL)`,
+    [photoId, includeDeleted],
   );
   const row = rows[0];
   if (!row) throw notFound();
@@ -236,7 +236,8 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
     const { orgId, photoId } = parse(PhotoParams, req.params);
     const { variant } = parse(PhotoContentQuery, req.query);
     const file = await inOrg(db, req, orgId, async (tx, ctx) => {
-      const p = await loadVisiblePhoto(tx, ctx, photoId);
+      // People who can restore photos may also view deleted ones (to decide what to restore).
+      const p = await loadVisiblePhoto(tx, ctx, photoId, ctx.has("photos.delete_any"));
       if (variant === "original") {
         ctx.require("photos.read_original");
         await recordAudit(tx, ctx, "photo.original_downloaded", "photo", photoId);

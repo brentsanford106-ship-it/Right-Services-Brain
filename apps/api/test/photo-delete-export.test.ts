@@ -1,9 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import sharp from "sharp";
 import { adminClient, createTestApp, F, ORG_A, ORG_B, uuid, type TestApp } from "./helpers.js";
 
 /** Deleting (soft delete + restore) and exporting photos, with permission checks and audit records. */
 let t: TestApp;
-beforeAll(async () => { t = await createTestApp(); });
+let jpeg: Buffer;
+beforeAll(async () => {
+  t = await createTestApp();
+  jpeg = await sharp({ create: { width: 32, height: 24, channels: 3, background: "#336699" } }).jpeg().toBuffer();
+});
 afterAll(async () => { await t.close(); });
 
 const base = `/v1/orgs/${ORG_A}`;
@@ -68,6 +73,14 @@ describe("deleting photos", () => {
     const gallery = await t.as("dev-eli-employee").get(`${base}/jobs/${hp1001}/photos`);
     expect(gallery.body.items.map((x: { id: string }) => x.id)).toContain(p.id);
     expect(await auditCount("photo.restored", p.id)).toBe(1);
+  });
+
+  it("owners/managers can still view a deleted photo's image (to decide whether to restore); employees cannot", async () => {
+    const p = await shoot("dev-eli-employee", hp1001);
+    expect((await t.as("dev-eli-employee").put(`${base}/photos/${p.id}/content`, jpeg, "image/jpeg")).status).toBe(200);
+    await t.as("dev-eli-employee").del(`${base}/photos/${p.id}`);
+    expect((await t.as("dev-morgan-manager").raw(`${base}/photos/${p.id}/content`)).status).toBe(200);
+    expect((await t.as("dev-eli-employee").raw(`${base}/photos/${p.id}/content`)).status).toBe(404);
   });
 
   it("employees cannot see Recently deleted or restore", async () => {
