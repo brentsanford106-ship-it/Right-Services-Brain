@@ -47,7 +47,7 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 - Job search and edit. Photo-only dashboard.
 - Receipts, vehicles, and member admin routes are switched off (`PHASE2_FEATURES=false` by default).
 
-## Test results (run 2026-11-21 in the cloud dev environment)
+## Test results (2026-11-21: cloud dev environment, and again on JB's Windows PC with the same counts)
 
 - Server: 182 of 182 pass (includes the end-to-end acceptance test).
 - Offline queue and sync: 21 of 21 pass.
