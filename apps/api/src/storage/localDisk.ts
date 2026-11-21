@@ -1,0 +1,40 @@
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { assertValidKey, type ObjectStorage } from "./types.js";
+
+/**
+ * DEVELOPMENT/TEST storage on the local disk. Not used in staging/production
+ * (config.ts refuses), where Azure Blob Storage with private containers,
+ * encryption at rest and managed identity replaces it (Phase 2).
+ */
+export class LocalDiskStorage implements ObjectStorage {
+  private readonly root: string;
+  constructor(root: string) {
+    this.root = path.resolve(root);
+  }
+
+  private resolve(key: string): string {
+    assertValidKey(key);
+    const full = path.resolve(this.root, ...key.split("/"));
+    // Defence in depth against path traversal.
+    if (!full.startsWith(this.root + path.sep)) throw new Error("invalid storage path");
+    return full;
+  }
+
+  async put(key: string, data: Buffer): Promise<void> {
+    const full = this.resolve(key);
+    await mkdir(path.dirname(full), { recursive: true });
+    const tmp = `${full}.${process.pid}.tmp`;
+    await writeFile(tmp, data, { mode: 0o600 });
+    await rename(tmp, full);
+  }
+
+  async get(key: string): Promise<Buffer | null> {
+    try {
+      return await readFile(this.resolve(key));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw e;
+    }
+  }
+}

@@ -14,6 +14,8 @@ const EnvSchema = z.object({
   OIDC_AUDIENCE: z.string().optional(),
   OIDC_JWKS_URI: z.string().optional(),
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(300),
+  STORAGE_DRIVER: z.enum(["local", "azure_blob"]).default("local"),
+  LOCAL_STORAGE_DIR: z.string().default(".data/object-store"),
 });
 
 export interface AppConfig {
@@ -26,6 +28,7 @@ export interface AppConfig {
   devAuthEnabled: boolean;
   oidc: { issuer: string; audience: string; jwksUri: string } | null;
   rateLimitPerMinute: number;
+  storage: { driver: "local"; dir: string } | { driver: "azure_blob" };
 }
 
 export class ConfigError extends Error {}
@@ -61,6 +64,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
 
   if (isDeployed) {
     if (!oidc) throw new ConfigError("A production identity provider (OIDC_*) is required in staging/production");
+    if (e.STORAGE_DRIVER === "local") {
+      throw new ConfigError("Local disk storage is for development only; staging/production must use azure_blob");
+    }
     if (!/sslmode=(require|verify-ca|verify-full)/.test(e.DATABASE_URL)) {
       throw new ConfigError("DATABASE_URL must require TLS (sslmode=verify-full recommended) in staging/production");
     }
@@ -76,5 +82,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     devAuthEnabled: e.DEV_AUTH_ENABLED,
     oidc,
     rateLimitPerMinute: e.RATE_LIMIT_PER_MINUTE,
+    storage: e.STORAGE_DRIVER === "local" ? { driver: "local", dir: e.LOCAL_STORAGE_DIR } : { driver: "azure_blob" },
   };
 }

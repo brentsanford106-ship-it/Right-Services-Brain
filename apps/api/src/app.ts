@@ -10,6 +10,8 @@ import type { TokenVerifier } from "./auth/types.js";
 import { DevAuth } from "./auth/dev.js";
 import { OidcVerifier } from "./auth/oidc.js";
 import { registerRoutes } from "./routes/index.js";
+import type { ObjectStorage } from "./storage/types.js";
+import { LocalDiskStorage } from "./storage/localDisk.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -25,6 +27,7 @@ export interface AppDeps {
   verifiers?: TokenVerifier[];
   devAuth?: DevAuth | null;
   logStream?: NodeJS.WritableStream;
+  storage?: ObjectStorage;
 }
 
 /** Headers and fields that must never reach logs. */
@@ -88,7 +91,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 
   app.addHook("onSend", async (req, reply) => {
     reply.header("x-request-id", req.id);
-    reply.header("cache-control", "no-store");
+    if (!reply.hasHeader("cache-control")) reply.header("cache-control", "no-store");
   });
 
   // ---------------------------------------------------------------- authentication
@@ -160,6 +163,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     void reply.status(404).send({ error: { code: "not_found", message: "Not found.", requestId: req.id } });
   });
 
-  await registerRoutes(app, { db, config, devAuth });
+  let storage: ObjectStorage;
+  if (deps.storage) storage = deps.storage;
+  else if (config.storage.driver === "local") storage = new LocalDiskStorage(config.storage.dir);
+  else throw new Error("Azure Blob storage adapter is not implemented yet (Phase 2). Refusing to start.");
+
+  await registerRoutes(app, { db, config, devAuth, storage });
   return app;
 }

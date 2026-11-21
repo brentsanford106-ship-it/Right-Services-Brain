@@ -1,4 +1,8 @@
 import { Writable } from "node:stream";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { LocalDiskStorage } from "../src/storage/localDisk.js";
 import { inject } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
@@ -22,6 +26,8 @@ export interface TestApp {
   as(subject: string): {
     get(url: string): Promise<Res>;
     post(url: string, body?: unknown): Promise<Res>;
+    put(url: string, data: Buffer, contentType: string): Promise<Res>;
+    raw(url: string): Promise<{ status: number; data: Buffer; headers: Record<string, unknown> }>;
   };
   close(): Promise<void>;
 }
@@ -51,7 +57,8 @@ export async function createTestApp(overrides: Record<string, string> = {}): Pro
       cb();
     },
   });
-  const app = await buildApp({ config, db, devAuth: config.devAuthEnabled ? devAuth : null, logStream });
+  const storage = new LocalDiskStorage(mkdtempSync(path.join(tmpdir(), "rsb-store-")));
+  const app = await buildApp({ config, db, devAuth: config.devAuthEnabled ? devAuth : null, logStream, storage });
   await app.ready();
 
   const send = async (method: "GET" | "POST", url: string, token: string | null, body?: unknown): Promise<Res> => {
@@ -73,6 +80,14 @@ export async function createTestApp(overrides: Record<string, string> = {}): Pro
     as: (subject) => ({
       get: async (url) => send("GET", url, await devAuth.issue(subject)),
       post: async (url, body) => send("POST", url, await devAuth.issue(subject), body ?? {}),
+      put: async (url, data, contentType) => {
+        const res = await app.inject({ method: "PUT", url, headers: { authorization: `Bearer ${await devAuth.issue(subject)}`, "content-type": contentType }, payload: data });
+        return { status: res.statusCode, body: res.body ? JSON.parse(res.body) : null, headers: res.headers };
+      },
+      raw: async (url) => {
+        const res = await app.inject({ method: "GET", url, headers: { authorization: `Bearer ${await devAuth.issue(subject)}` } });
+        return { status: res.statusCode, data: res.rawPayload, headers: res.headers };
+      },
     }),
     close: async () => {
       await app.close();

@@ -100,24 +100,70 @@ export const PhotoStage = z.enum(["before", "during", "after", "issue", "other"]
 export const Photo = z.object({
   id: Uuid,
   jobId: Uuid,
+  jobNumber: z.string(),
+  siteName: z.string().nullable(),
   stage: PhotoStage,
   caption: z.string().nullable(),
   capturedAt: z.string(),
   uploadStatus: z.enum(["pending", "stored", "rejected"]),
   uploadedBy: z.string(),
   openFlags: z.number().int(),
+  latitude: z.number().nullable(),
+  longitude: z.number().nullable(),
+  widthPx: z.number().int().nullable(),
+  heightPx: z.number().int().nullable(),
+  hasPreview: z.boolean(),
+  storedAt: z.string().nullable(),
 });
 export type Photo = z.infer<typeof Photo>;
 
-/** Phase 1 records photo METADATA only. Binary upload (short-lived signed URL, server-side type sniffing, malware scan) is Phase 2. */
-export const CreatePhotoRequest = z.strictObject({
-  clientRef: Uuid,
-  stage: PhotoStage,
-  caption: OptionalText(500),
-  capturedAt: z.iso.datetime({ offset: true }),
-  contentType: z.enum(["image/jpeg", "image/png", "image/heic"]),
-});
+/**
+ * Step 1 of an upload: record the photo's details. Step 2 sends the image bytes
+ * to PUT /photos/:photoId/content. Splitting the two lets the phone queue both
+ * steps offline and retry each safely.
+ */
+export const CreatePhotoRequest = z
+  .strictObject({
+    clientRef: Uuid,
+    stage: PhotoStage,
+    caption: OptionalText(500),
+    capturedAt: z.iso.datetime({ offset: true }),
+    contentType: z.enum(["image/jpeg", "image/png", "image/heic"]),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
+    locationAccuracyM: z.number().min(0).max(100_000).optional(),
+  })
+  .refine((v) => (v.latitude === undefined) === (v.longitude === undefined), {
+    path: ["longitude"],
+    message: "latitude and longitude must be sent together",
+  });
 export type CreatePhotoRequest = z.infer<typeof CreatePhotoRequest>;
+
+export const PHOTO_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Photo files are downloaded only through authenticated API requests
+ * (Authorization header required on every download). There are no bearer
+ * URLs: a copied link without the caller's token returns 401.
+ */
+export const PhotoContentQuery = z.strictObject({ variant: z.enum(["preview", "original"]).default("preview") });
+
+/** Search/recall photos. All filters are optional and combine with AND. */
+export const PhotoSearchQuery = z
+  .strictObject({
+    jobNumber: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/).optional(),
+    site: z.string().trim().min(2).max(100).optional(),
+    from: IsoDate.optional(),
+    to: IsoDate.optional(),
+    lat: z.coerce.number().min(-90).max(90).optional(),
+    lng: z.coerce.number().min(-180).max(180).optional(),
+    radiusM: z.coerce.number().min(10).max(50_000).default(500),
+    stage: PhotoStage.optional(),
+    limit: z.coerce.number().int().min(1).max(200).default(100),
+  })
+  .refine((v) => (v.lat === undefined) === (v.lng === undefined), { path: ["lng"], message: "lat and lng must be sent together" })
+  .refine((v) => !v.from || !v.to || v.from <= v.to, { path: ["to"], message: "must be on or after from" });
+export type PhotoSearchQuery = z.input<typeof PhotoSearchQuery>;
 
 export const CreatePhotoFlagRequest = z.strictObject({ reason: Text(1000) });
 export const ResolvePhotoFlagRequest = z.strictObject({ resolutionNote: OptionalText(1000) });

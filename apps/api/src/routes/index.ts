@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { AppConfig } from "../config.js";
 import type { Database } from "../lib/db.js";
 import type { DevAuth } from "../auth/dev.js";
+import type { ObjectStorage } from "../storage/types.js";
 import { healthRoutes } from "./health.js";
 import { meRoutes } from "./me.js";
 import { jobRoutes } from "./jobs.js";
@@ -15,6 +16,7 @@ export interface RouteDeps {
   db: Database;
   config: AppConfig;
   devAuth: DevAuth | null;
+  storage: ObjectStorage;
 }
 
 export async function registerRoutes(app: FastifyInstance, deps: RouteDeps): Promise<void> {
