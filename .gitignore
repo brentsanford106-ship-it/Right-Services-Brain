@@ -1,0 +1,22 @@
+node_modules/
+dist/
+build/
+coverage/
+.expo/
+.expo-shared/
+web-build/
+*.log
+.DS_Store
+Thumbs.db
+# Secrets: never commit real environment files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p8
+*.p12
+*.mobileprovision
+# Local data
+.pgdata/
+.azurite/
