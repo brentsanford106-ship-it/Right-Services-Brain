@@ -43,7 +43,7 @@ You already installed Node 24, pnpm, Git and Docker Desktop on this PC. These st
    Copy-Item .env.example .env
    notepad .env
    ```
-   In Notepad, replace both `change-me-local-admin-password` (it appears **twice**) with one made-up password, and both `change-me-local-app-password` (also twice) with a different one. Use only letters and numbers. Save and close.
+   In Notepad, replace both `change-me-local-admin-password` (it appears **twice**) with one made-up password, and both `change-me-local-app-password` (also twice) with a different one. Use only letters and numbers, and make each password **at least 16 characters** long. Save and close.
 5. **Start the database and fill it with test data:**
    ```powershell
    pnpm db:up
