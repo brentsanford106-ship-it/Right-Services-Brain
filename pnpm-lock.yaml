@@ -41,6 +41,9 @@ importers:
       '@rsb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@rsb/photo-sync':
+        specifier: workspace:*
+        version: link:../../packages/photo-sync
       '@types/node':
         specifier: 24.19.2
         version: 24.19.2

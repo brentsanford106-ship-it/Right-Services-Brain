@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@rsb/db": "workspace:*",
+    "@rsb/photo-sync": "workspace:*",
     "@types/node": "24.19.2",
     "@types/pg": "8.23.1",
     "tsx": "4.23.15",
