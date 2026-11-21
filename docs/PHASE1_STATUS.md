@@ -6,15 +6,15 @@ Last updated: 2026-11-21. Phase 1 is **not complete**. The acceptance flow passe
 
 | Step | Automated test (real server + database, over HTTP) | On a real iPhone |
 | --- | --- | --- |
-| Create job | Passes | Form opens and fits the screen; saving a new job on the phone not confirmed yet |
+| Create job | Passes | Passed (new job created and saved from the phone) |
 | Open camera | Not testable automatically (needs camera hardware) | Passed |
 | Take multiple photos without confirming | Passes (queue + encryption) | Passed |
 | Flag latest photo | Passes | Passed |
 | Review thumbnail | Passes (thumbnail decrypts for display) | Not confirmed yet |
-| Add note | Passes | Not confirmed: the note did not reach the web. Likely cause: the note only saved after tapping **Save note**. It now also saves when you leave the box or the screen. Needs re-test |
+| Add note | Passes | Passed after a fix (notes now also save when you leave the box or screen; first try was lost because it only saved on **Save note**) |
 | Resume camera | UI only | Not confirmed yet |
-| Capture offline | Passes (network switched off, app restarted while offline) | Passed (Airplane Mode, 3 photos showed "waiting to upload") |
-| Reconnect and synchronize | Passes (nothing lost, no duplicates, originals byte-identical) | Passed (all 3 uploaded automatically after reconnecting) |
+| Capture offline | Passes (network switched off, app restarted while offline) | Passed (Airplane Mode: 3 photos, then a second run of 35 photos; Expo Go fully closed while the 35 were still waiting) |
+| Reconnect and synchronize | Passes (nothing lost, no duplicates, originals byte-identical) | Passed (all 3, and later all 35, uploaded on their own after reconnecting and reopening; all 35 visible on the web) |
 | View photos on web | Passes (API) and web screen tests pass | Passed (photos, stages and flag visible in Chrome on the PC) |
 | Flags, notes, stages and sync states persist | Passes | Not yet tested |
 
@@ -59,7 +59,7 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 - **Sign-in is simulated.** You pick a test person; there are no passwords. Real sign-in (Microsoft Entra External ID) is not built. Blocks real data.
 - **Cloud storage is not built.** Photos are stored on the server's disk (development only). The server refuses to start in staging/production without Azure Blob Storage, which is not implemented yet.
 - **No cloud backups yet.** Nothing is deployed. Backup and recovery are planned with Azure (database point-in-time restore, blob soft-delete/versioning); not set up.
-- **Real-iPhone testing is partial.** Done in Expo Go on one iPhone (iOS 26). Still to check on a device: notes after the fix, GPS, encryption speed on many large photos, upload while the app is in the background, and closing/reopening the app while offline. A standalone app build (not Expo Go) needs the paid Apple Developer account.
+- **Real-iPhone testing is partial.** Done in Expo Go on one iPhone (iOS 26). Still to check on a device: notes after the fix, GPS, encryption speed on many large photos, upload while the app is in the background, and opening the app while still offline (Expo Go itself can't open without the PC connection, so this needs a standalone build). Photos did survive the app being fully closed and reopened. A standalone app build (not Expo Go) needs the paid Apple Developer account.
 - **Demo photos have no picture.** The made-up sample photo records have no image file, so they show "File not uploaded yet" / "Waiting for file". Their notes now say so.
 - **iPhone upload in the background is limited by iOS.** See `docs/IOS_SYNC.md`.
 - **Account revocation wipe** is triggered only when the server refuses to issue a token. Real-sign-in revocation is part of the real sign-in work.
