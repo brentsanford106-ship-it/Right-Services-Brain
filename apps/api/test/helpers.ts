@@ -21,6 +21,7 @@ export interface TestApp {
   db: Database;
   devAuth: DevAuth;
   logs: string[];
+  storage: LocalDiskStorage;
   token(subject: string, ttlSeconds?: number): Promise<string>;
   /** Authenticated request helper. */
   as(subject: string): {
@@ -80,6 +81,7 @@ export async function createTestApp(overrides: Record<string, string> = {}): Pro
     db,
     devAuth,
     logs,
+    storage,
     token: (s, ttl) => devAuth.issue(s, ttl),
     as: (subject) => ({
       get: async (url) => send("GET", url, await devAuth.issue(subject)),

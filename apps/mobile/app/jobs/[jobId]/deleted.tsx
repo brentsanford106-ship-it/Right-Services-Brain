@@ -6,7 +6,9 @@ import { useApp } from "../../../src/state";
 import { ServerImage, type ServerPhoto } from "../../../src/photos";
 import { C, DevBanner, Empty, s } from "../../../src/ui";
 
-type DeletedPhoto = ServerPhoto & { deletedAt: string; deletedBy: string };
+type DeletedPhoto = ServerPhoto & { deletedAt: string; deletedBy: string; purgeAfter: string };
+
+const daysLeft = (iso: string) => Math.max(0, Math.ceil((Date.parse(iso) - Date.now()) / 86_400_000));
 
 /**
  * Recently deleted photos for one job, like the iPhone Photos album. Only for people allowed to
@@ -24,6 +26,7 @@ export default function RecentlyDeleted() {
   const cols = width >= 700 ? 5 : 3;
   const size = Math.floor((width - 4 * (cols + 1)) / cols);
   const base = `/v1/orgs/${app.session!.orgId}`;
+  const canPurge = app.can("photos.purge");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,6 +77,42 @@ export default function RecentlyDeleted() {
     void load();
   };
 
+  const purge = async (ids: string[]) => {
+    setBusy(true);
+    try {
+      await app.api.post(`${base}/photos/purge`, { photoIds: ids });
+    } catch (e) {
+      Alert.alert(
+        "Not deleted",
+        e instanceof NetworkError
+          ? "Deleting forever needs a connection. Nothing was deleted."
+          : e instanceof ApiError && e.status === 403
+            ? "Only owners can delete photos forever."
+            : "Something went wrong. Nothing was deleted.",
+      );
+    }
+    setBusy(false);
+    setSelected(new Set());
+    void load();
+  };
+
+  /** Two steps on purpose: this can't be undone by anyone. */
+  const confirmPurge = (ids: string[]) => {
+    const what = ids.length === 1 ? "This photo" : `These ${ids.length} photos`;
+    Alert.alert(`Delete ${ids.length === 1 ? "photo" : `${ids.length} photos`} forever?`, `${what} will be erased and can't be restored by anyone.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Continue",
+        style: "destructive",
+        onPress: () =>
+          Alert.alert("Are you sure?", "This can't be undone. The activity log will keep a note that the photo existed.", [
+            { text: "Cancel", style: "cancel" },
+            { text: "Delete Forever", style: "destructive", onPress: () => void purge(ids) },
+          ]),
+      },
+    ]);
+  };
+
   const chosen = [...selected];
   return (
     <View style={s.screen}>
@@ -92,6 +131,7 @@ export default function RecentlyDeleted() {
       <DevBanner />
       <Text style={[s.muted, { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 }]}>
         {jobNumber ? `${jobNumber}: ` : ""}tap photos to choose them, then tap Restore. Restored photos go back into the job for everyone.
+        {items[0] ? ` Photos are removed for good automatically after the company's keep time (see Settings).` : ""}
       </Text>
       {note ? <Text style={[s.error, { paddingHorizontal: 16 }]}>{note}</Text> : null}
       <FlatList
@@ -139,6 +179,7 @@ export default function RecentlyDeleted() {
               <Text style={[s.muted, { fontSize: 11, marginTop: 2 }]} numberOfLines={2}>
                 Deleted by {item.deletedBy} · {new Date(item.deletedAt).toLocaleDateString()}
               </Text>
+              <Text style={[s.muted, { fontSize: 11 }]}>{daysLeft(item.purgeAfter) === 0 ? "Removed today" : `${daysLeft(item.purgeAfter)} days left`}</Text>
             </Pressable>
           );
         }}
@@ -161,11 +202,16 @@ export default function RecentlyDeleted() {
             justifyContent: "space-between",
           }}
         >
+          {canPurge ? (
+            <Pressable accessibilityRole="button" disabled={!chosen.length || busy} hitSlop={12} onPress={() => confirmPurge(chosen)}>
+              <Text style={{ fontSize: 17, fontWeight: "600", color: chosen.length ? C.flag : C.muted }}>Delete</Text>
+            </Pressable>
+          ) : null}
           <Text style={{ fontSize: 15, fontWeight: "600", color: C.text }}>
-            {chosen.length ? `${chosen.length} Photo${chosen.length > 1 ? "s" : ""} Selected` : "Select photos to restore"}
+            {chosen.length ? `${chosen.length} Selected` : "Select photos"}
           </Text>
           <Pressable accessibilityRole="button" disabled={!chosen.length || busy} hitSlop={12} onPress={() => void restore(chosen)}>
-            <Text style={{ fontSize: 17, fontWeight: "600", color: chosen.length ? C.link : C.muted }}>{busy ? "Restoring…" : "Restore"}</Text>
+            <Text style={{ fontSize: 17, fontWeight: "600", color: chosen.length ? C.link : C.muted }}>{busy ? "Working…" : "Restore"}</Text>
           </Pressable>
         </View>
       ) : null}

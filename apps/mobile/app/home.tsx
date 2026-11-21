@@ -25,6 +25,7 @@ export default function Home() {
     if (!app.session) return;
     setLoading(true);
     const base = `/v1/orgs/${app.session.orgId}`;
+    void app.refreshPermissions();
     try {
       const [d, j] = await Promise.all([
         app.api.get<Dashboard>(`${base}/dashboard`),
@@ -43,7 +44,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [app.api, app.cache, app.session]);
+  }, [app.api, app.cache, app.session, app.refreshPermissions]);
 
   useFocusEffect(
     useCallback(() => {

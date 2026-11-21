@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { assertValidKey, type ObjectStorage } from "./types.js";
 
@@ -36,5 +36,9 @@ export class LocalDiskStorage implements ObjectStorage {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw e;
     }
+  }
+
+  async delete(key: string): Promise<void> {
+    await rm(this.resolve(key), { force: true });
   }
 }

@@ -9,6 +9,7 @@ export const PERMISSIONS = [
   "org.manage",
   "members.read",
   "members.manage",
+  "roles.manage",
   "customers.read",
   "customers.manage",
   "jobs.read_all",
@@ -19,6 +20,7 @@ export const PERMISSIONS = [
   "photos.read_original",
   "photos.delete_any",
   "photos.export",
+  "photos.purge",
   "photo_flags.create",
   "photo_flags.manage",
   "receipts.submit",
@@ -37,6 +39,40 @@ export const PERMISSIONS = [
 
 export type Permission = (typeof PERMISSIONS)[number];
 export type RoleKey = "owner" | "manager" | "employee";
+
+/** Plain-English labels for the Team & Roles screens. `phase1: false` = the feature isn't switched on yet. */
+export const PERMISSION_INFO: Record<Permission, { group: string; label: string; phase1: boolean }> = {
+  "org.read": { group: "Company", label: "See the company name and basic details", phase1: true },
+  "org.manage": { group: "Company", label: "Change company settings (like how long Recently Deleted keeps photos)", phase1: true },
+  "members.read": { group: "Team", label: "See the list of people in the company", phase1: true },
+  "members.manage": { group: "Team", label: "Add or remove people (needs real sign-in, not yet)", phase1: false },
+  "roles.manage": { group: "Team", label: "Create and edit roles, and choose each person's roles", phase1: true },
+  "customers.read": { group: "Customers", label: "See customers", phase1: false },
+  "customers.manage": { group: "Customers", label: "Add and edit customers", phase1: false },
+  "jobs.read_all": { group: "Jobs", label: "See every job", phase1: true },
+  "jobs.read_assigned": { group: "Jobs", label: "See jobs they're assigned to", phase1: true },
+  "jobs.manage": { group: "Jobs", label: "Create and edit jobs, change job status", phase1: true },
+  "job_assignments.manage": { group: "Jobs", label: "Choose who is assigned to a job", phase1: true },
+  "photos.upload": { group: "Photos", label: "Take and upload photos (and delete their own)", phase1: true },
+  "photos.read_original": { group: "Photos", label: "Open full-size original photos", phase1: true },
+  "photos.delete_any": { group: "Photos", label: "Delete anyone's photos, see Recently Deleted and restore", phase1: true },
+  "photos.export": { group: "Photos", label: "Share or download photos (Messages, Mail, download)", phase1: true },
+  "photos.purge": { group: "Photos", label: "Delete photos forever from Recently Deleted", phase1: true },
+  "photo_flags.create": { group: "Photos", label: "Flag photos for review", phase1: true },
+  "photo_flags.manage": { group: "Photos", label: "Resolve flagged photos", phase1: true },
+  "receipts.submit": { group: "Receipts", label: "Submit receipts", phase1: false },
+  "receipts.read_own": { group: "Receipts", label: "See their own receipts", phase1: false },
+  "receipts.read_all": { group: "Receipts", label: "See everyone's receipts", phase1: false },
+  "financials.read": { group: "Receipts", label: "See financial totals", phase1: false },
+  "vehicles.read_all": { group: "Vehicles", label: "See all vehicles", phase1: false },
+  "vehicles.read_assigned": { group: "Vehicles", label: "See their assigned vehicles", phase1: false },
+  "vehicles.manage": { group: "Vehicles", label: "Add and edit vehicles", phase1: false },
+  "mileage.submit": { group: "Vehicles", label: "Log mileage", phase1: false },
+  "mileage.read_all": { group: "Vehicles", label: "See everyone's mileage", phase1: false },
+  "maintenance.report": { group: "Vehicles", label: "Report vehicle problems", phase1: false },
+  "maintenance.manage": { group: "Vehicles", label: "Manage vehicle maintenance", phase1: false },
+  "audit.read": { group: "Company", label: "See the activity (audit) log", phase1: true },
+};
 
 /**
  * Default role templates copied into each new organization.

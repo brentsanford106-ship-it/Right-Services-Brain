@@ -9,6 +9,7 @@ import { JobsPage } from "./pages/JobsPage";
 import { JobDetailPage } from "./pages/JobDetailPage";
 import { PhotoSearchPage } from "./pages/PhotoSearchPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TeamPage } from "./pages/TeamPage";
 
 function useSignedIn() {
   return useSyncExternalStore(session.subscribe, () => session.token !== null);
@@ -25,6 +26,7 @@ export function App() {
         <Route path="jobs" element={<JobsPage />} />
         <Route path="jobs/:jobId" element={<JobDetailPage />} />
         <Route path="photos" element={<PhotoSearchPage />} />
+        <Route path="team" element={<TeamPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

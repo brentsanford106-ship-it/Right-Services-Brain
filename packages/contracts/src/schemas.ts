@@ -154,7 +154,12 @@ export type PhotoIdsRequest = z.infer<typeof PhotoIdsRequest>;
 export const ExportPhotosRequest = PhotoIdsRequest.extend({ channel: z.enum(["share_sheet", "download"]) });
 export type ExportPhotosRequest = z.infer<typeof ExportPhotosRequest>;
 
-export const DeletedPhoto = Photo.extend({ deletedAt: z.string(), deletedBy: z.string() });
+export const DeletedPhoto = Photo.extend({
+  deletedAt: z.string(),
+  deletedBy: z.string(),
+  /** When the scheduled clean-up will remove it for good (company setting, Settings > Recently Deleted). */
+  purgeAfter: z.string(),
+});
 export type DeletedPhoto = z.infer<typeof DeletedPhoto>;
 
 /**
@@ -281,6 +286,56 @@ export const Member = z.object({
   roles: z.array(z.string()),
 });
 export type Member = z.infer<typeof Member>;
+
+// ---------------------------------------------------------------- company settings
+export const RETENTION_DAY_OPTIONS = [7, 14, 30, 60, 90] as const;
+export const OrgSettings = z.object({
+  deletedPhotoRetentionDays: z.number().int(),
+  canEdit: z.boolean(),
+});
+export type OrgSettings = z.infer<typeof OrgSettings>;
+export const UpdateOrgSettingsRequest = z.strictObject({
+  deletedPhotoRetentionDays: z.union([z.literal(7), z.literal(14), z.literal(30), z.literal(60), z.literal(90)]),
+});
+export type UpdateOrgSettingsRequest = z.infer<typeof UpdateOrgSettingsRequest>;
+
+// ---------------------------------------------------------------- team & roles
+export const RoleParams = z.strictObject({ orgId: Uuid, roleId: Uuid });
+export const MemberParams = z.strictObject({ orgId: Uuid, membershipId: Uuid });
+
+export const TeamRole = z.object({
+  id: Uuid,
+  key: z.string(),
+  name: z.string(),
+  builtIn: z.boolean(),
+  /** The Owner role always has every permission and can't be edited. */
+  locked: z.boolean(),
+  permissions: z.array(z.string()),
+  memberCount: z.number().int(),
+});
+export type TeamRole = z.infer<typeof TeamRole>;
+
+export const TeamMember = z.object({
+  membershipId: Uuid,
+  displayName: z.string(),
+  jobTitle: z.string().nullable(),
+  status: z.enum(["active", "suspended", "removed"]),
+  isYou: z.boolean(),
+  roles: z.array(z.object({ id: Uuid, key: z.string(), name: z.string() })),
+});
+export type TeamMember = z.infer<typeof TeamMember>;
+
+export const PermissionInfo = z.object({ key: z.string(), group: z.string(), label: z.string(), inUse: z.boolean() });
+export type PermissionInfo = z.infer<typeof PermissionInfo>;
+
+const RoleName = z.string().trim().min(1).max(60);
+const PermissionKeys = z.array(z.string().regex(/^[a-z_]+\.[a-z_]+$/)).max(100);
+export const CreateRoleRequest = z.strictObject({ name: RoleName, permissions: PermissionKeys });
+export type CreateRoleRequest = z.infer<typeof CreateRoleRequest>;
+export const UpdateRoleRequest = z.strictObject({ name: RoleName.optional(), permissions: PermissionKeys.optional() });
+export type UpdateRoleRequest = z.infer<typeof UpdateRoleRequest>;
+export const SetMemberRolesRequest = z.strictObject({ roleIds: z.array(Uuid).min(1, "Everyone needs at least one role.").max(20) });
+export type SetMemberRolesRequest = z.infer<typeof SetMemberRolesRequest>;
 
 // ---------------------------------------------------------------- dashboard
 export const DashboardResponse = z.object({

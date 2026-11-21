@@ -1,6 +1,8 @@
-import { useOrgContext } from "../lib/hooks";
-import { session } from "../lib/api";
+import { useOrgContext, useOrgId, useOrgQuery } from "../lib/hooks";
+import { api, ApiRequestError, session } from "../lib/api";
 import { useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { RETENTION_DAY_OPTIONS, type OrgSettings } from "@rsb/contracts";
 import { Status } from "../components/ui";
 import { getThemePref, setThemePref, type ThemePref } from "../lib/theme";
 
@@ -27,6 +29,7 @@ export function SettingsPage() {
           </button>
         ))}
       </div>
+      <RecentlyDeletedSetting />
       <Status query={ctx}>
         {(c) => (
           <>
@@ -41,6 +44,43 @@ export function SettingsPage() {
         )}
       </Status>
       <button onClick={() => session.set(null)}>Sign out</button>
+    </>
+  );
+}
+
+/** How long Recently Deleted keeps photos before they are removed for good. Owners can change it. */
+function RecentlyDeletedSetting() {
+  const orgId = useOrgId();
+  const qc = useQueryClient();
+  const settings = useOrgQuery<OrgSettings>("settings", "/settings");
+  const save = useMutation({
+    mutationFn: (days: number) => api<OrgSettings>(`/v1/orgs/${orgId}/settings`, { method: "PATCH", body: { deletedPhotoRetentionDays: days } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [orgId] }),
+  });
+  return (
+    <>
+      <h2>Recently Deleted</h2>
+      <Status query={settings}>
+        {(s) => (
+          <>
+            <p className="muted small">
+              Deleted photos stay in Recently Deleted so they can be restored. After this many days they are removed for good, automatically.
+            </p>
+            {s.canEdit ? (
+              <label>
+                Keep deleted photos for{" "}
+                <select value={s.deletedPhotoRetentionDays} disabled={save.isPending} onChange={(e) => save.mutate(Number(e.target.value))}>
+                  {RETENTION_DAY_OPTIONS.map((d) => <option key={d} value={d}>{d} days</option>)}
+                </select>
+              </label>
+            ) : (
+              <p>Deleted photos are kept for <strong>{s.deletedPhotoRetentionDays} days</strong>. Only an owner can change this.</p>
+            )}
+            {save.isSuccess && <p className="muted small" role="status">Saved.</p>}
+            {save.error && <p className="error" role="alert">{save.error instanceof ApiRequestError ? save.error.message : "Couldn't save."}</p>}
+          </>
+        )}
+      </Status>
     </>
   );
 }

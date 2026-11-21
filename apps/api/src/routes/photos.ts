@@ -3,6 +3,7 @@ import {
   CreatePhotoFlagRequest,
   CreatePhotoRequest,
   ExportPhotosRequest,
+  PhotoIdsRequest,
   FlagParams,
   JobParams,
   OrgParams,
@@ -25,6 +26,7 @@ import { insertIdempotent } from "../lib/idempotency.js";
 import { HttpError, notFound } from "../lib/errors.js";
 import { processUpload, sha256 } from "../lib/image.js";
 import { photoKey } from "../storage/types.js";
+import { purgeDeletedPhoto, removeFiles } from "../lib/purge.js";
 import type { RouteDeps } from "./index.js";
 
 interface PhotoRow {
@@ -315,18 +317,52 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
     return inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("photos.delete_any");
       await assertJobAccess(tx, ctx, jobId);
-      const { rows } = await tx.query<PhotoRow & { deleted_at: Date; deleted_by: string }>(
-        `SELECT x.*, p2.deleted_at, du.display_name AS deleted_by
+      const { rows } = await tx.query<PhotoRow & { deleted_at: Date; deleted_by: string; purge_after: Date }>(
+        `SELECT x.*, p2.deleted_at, du.display_name AS deleted_by,
+                p2.deleted_at + make_interval(days => o.deleted_photo_retention_days) AS purge_after
            FROM (${PHOTO_SELECT} WHERE p.job_id = $1 AND p.deleted_at IS NOT NULL) x
            JOIN photos p2 ON p2.id = x.id
+           JOIN organizations o ON o.id = p2.organization_id
            JOIN organization_memberships dm ON dm.organization_id = p2.organization_id AND dm.id = p2.deleted_by_membership_id
            JOIN users du ON du.id = dm.user_id
           ORDER BY p2.deleted_at DESC LIMIT 500`,
         [jobId],
       );
-      const items: DeletedPhoto[] = rows.map((r) => ({ ...toPhoto(r, ctx), deletedAt: r.deleted_at.toISOString(), deletedBy: r.deleted_by }));
+      const items: DeletedPhoto[] = rows.map((r) => ({
+        ...toPhoto(r, ctx),
+        deletedAt: r.deleted_at.toISOString(),
+        deletedBy: r.deleted_by,
+        purgeAfter: r.purge_after.toISOString(),
+      }));
       return { items };
     });
+  });
+
+  // ------------------------------------------------------------ delete forever (only from Recently Deleted; cannot be undone)
+  app.post("/v1/orgs/:orgId/photos/purge", async (req, reply) => {
+    const { orgId } = parse(OrgParams, req.params);
+    const body = parse(PhotoIdsRequest, req.body);
+    const keys = await inOrg(db, req, orgId, async (tx, ctx) => {
+      ctx.require("photos.purge");
+      const ids = [...new Set(body.photoIds)];
+      // All or nothing: every photo must be in Recently Deleted on a job this person can see.
+      for (const id of ids) {
+        const { rows } = await tx.query<{ job_id: string }>("SELECT job_id FROM photos WHERE id = $1 AND deleted_at IS NOT NULL", [id]);
+        if (!rows[0]) throw notFound();
+        await assertJobAccess(tx, ctx, rows[0].job_id);
+      }
+      const all: string[] = [];
+      for (const id of ids) {
+        const res = await purgeDeletedPhoto(tx, id);
+        if (!res) throw notFound();
+        await recordAudit(tx, ctx, "photo.purged", "photo", id, { jobId: res.jobId, trigger: "manual" });
+        all.push(...res.keys);
+      }
+      return all;
+    });
+    // Files are removed only after the database change has committed.
+    await removeFiles(storage, keys, req.log);
+    return reply.status(204).send();
   });
 
   // ------------------------------------------------------------ export (photos leaving the app are always audited)

@@ -45,11 +45,13 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 **Server** (`apps/api`)
 - Photo flag/unflag, notes, stage changes (PATCH), with audit log entries that do not contain note text.
 - Job search and edit. Photo-only dashboard.
+- Delete forever from Recently Deleted (owners), and a company setting for how long Recently Deleted keeps photos (7 to 90 days, default 30) with an hourly automatic clean-up.
+- Team & roles: custom roles, editable Manager/Employee presets, choose each person's roles, with no-escalation and keep-an-owner rules enforced on the server and in the database. Website page "Team & roles"; read-only team list on the phone (Settings).
 - Receipts, vehicles, and member admin routes are switched off (`PHASE2_FEATURES=false` by default).
 
 ## Test results (2026-11-21: cloud dev environment, and again on JB's Windows PC with the same counts)
 
-- Server: 182 of 182 pass (includes the end-to-end acceptance test).
+- Server: 216 of 216 pass (includes the end-to-end acceptance test, 12 new team & roles tests and 11 new delete-forever / keep-time tests).
 - Offline queue and sync: 21 of 21 pass.
 - Web: 5 of 5 pass.
 - iPhone app: type check passes and the iOS bundle builds. There are no automated tests of the iPhone screens themselves.

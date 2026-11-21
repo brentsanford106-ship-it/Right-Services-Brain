@@ -24,6 +24,7 @@ export function JobDetailPage() {
   const [working, setWorking] = useState(false);
   const canExport = useCan("photos.export");
   const canDeleteAny = useCan("photos.delete_any");
+  const canPurge = useCan("photos.purge");
   const deleted = useOrgQuery<{ items: DeletedPhoto[] }>("jobPhotosDeleted", `/jobs/${jobId}/photos/deleted`, canDeleteAny);
   const refresh = () => qc.invalidateQueries({ queryKey: [orgId] });
   const toggle = (id: string) =>
@@ -37,6 +38,15 @@ export function JobDetailPage() {
     mutationFn: (id: string) => api<Photo>(`/v1/orgs/${orgId}/photos/${id}/restore`, { method: "POST" }),
     onSuccess: refresh,
   });
+  const purge = useMutation({
+    mutationFn: (ids: string[]) => api(`/v1/orgs/${orgId}/photos/purge`, { method: "POST", body: { photoIds: ids } }),
+    onSuccess: refresh,
+  });
+  const confirmPurge = (ids: string[]) => {
+    const what = ids.length === 1 ? "this photo" : `these ${ids.length} photos`;
+    const typed = window.prompt(`Delete ${what} forever?\n\nThe picture will be erased and can NOT be restored by anyone. The activity log keeps a note that it existed.\n\nType DELETE to confirm.`);
+    if (typed?.trim().toUpperCase() === "DELETE") purge.mutate(ids);
+  };
   const save = useMutation({
     mutationFn: (v: JobFormValues) => api<Job>(`/v1/orgs/${orgId}/jobs/${jobId}`, { method: "PATCH", body: v }),
     onSuccess: async () => {
@@ -143,12 +153,22 @@ export function JobDetailPage() {
                   {canDeleteAny && deleted.data && deleted.data.items.length > 0 && (
                     <details className="deleted">
                       <summary>Recently deleted ({deleted.data.items.length})</summary>
+                      {canPurge && deleted.data.items.length > 1 && (
+                        <div className="actions">
+                          <button className="danger" disabled={purge.isPending} onClick={() => confirmPurge(deleted.data!.items.map((p) => p.id))}>Delete all forever</button>
+                        </div>
+                      )}
+                      {purge.error && <p className="error" role="alert">{purge.error instanceof ApiRequestError ? purge.error.message : "Couldn't delete."}</p>}
                       <ul className="list">
                         {deleted.data.items.map((p) => (
                           <li key={p.id} className="row static">
                             <strong>{p.stage}</strong> · taken {new Date(p.capturedAt).toLocaleString()} by {p.uploadedBy}
                             <div className="muted small">Deleted {new Date(p.deletedAt).toLocaleString()} by {p.deletedBy}{p.note ? ` · “${p.note}”` : ""}</div>
-                            <button disabled={restore.isPending} onClick={() => restore.mutate(p.id)}>Restore</button>
+                            <div className="muted small">Removed for good on {new Date(p.purgeAfter).toLocaleDateString()}</div>
+                            <div className="actions">
+                              <button disabled={restore.isPending} onClick={() => restore.mutate(p.id)}>Restore</button>
+                              {canPurge && <button className="danger" disabled={purge.isPending} onClick={() => confirmPurge([p.id])}>Delete forever</button>}
+                            </div>
                           </li>
                         ))}
                       </ul>

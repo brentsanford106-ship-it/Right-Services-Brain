@@ -92,6 +92,8 @@ interface Ctx {
   signOut(): Promise<void>;
   syncNow(): void;
   can(permission: string): boolean;
+  /** Re-reads this person's permissions from the server (an owner may have changed their roles). Quietly does nothing offline. */
+  refreshPermissions(): Promise<void>;
   /** Current access token, for loading server images with an Authorization header. */
   token(): Promise<string | null>;
   /** Encrypted offline copy of lists fetched from the server (jobs, photo details), so screens work without signal. */
@@ -312,6 +314,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       signOut: wipeAll,
       syncNow: () => syncNow(true),
       can: (perm: string) => !!session?.permissions.includes(perm),
+      async refreshPermissions() {
+        const cur = sessionRef.current;
+        if (!cur) return;
+        try {
+          const ctx = await holder.current!.api.get<{ permissions: string[] }>(`/v1/orgs/${cur.orgId}`);
+          const next = [...ctx.permissions].sort();
+          if (JSON.stringify(next) === JSON.stringify([...cur.permissions].sort())) return;
+          const s: Session = { ...cur, permissions: next };
+          await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(s), OPTS);
+          sessionRef.current = s;
+          setSession(s);
+        } catch {
+          // Offline or signed out: keep what we have. The server still checks every action.
+        }
+      },
       token: () => getToken().catch(() => null),
       cache: {
         async get<T>(key: string) {

@@ -12,6 +12,7 @@ import { OidcVerifier } from "./auth/oidc.js";
 import { registerRoutes } from "./routes/index.js";
 import type { ObjectStorage } from "./storage/types.js";
 import { LocalDiskStorage } from "./storage/localDisk.js";
+import { startPurgeSchedule } from "./lib/purge.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -75,7 +76,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: config.corsOrigins,
     credentials: false,
-    methods: ["GET", "POST", "PATCH"],
+    methods: ["GET", "POST", "PATCH", "DELETE"],
     allowedHeaders: ["Authorization", "Content-Type"],
     maxAge: 600,
   });
@@ -169,5 +170,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   else throw new Error("Azure Blob storage adapter is not implemented yet (Phase 2). Refusing to start.");
 
   await registerRoutes(app, { db, config, devAuth, storage });
+
+  // Scheduled clean-up of Recently Deleted (not in tests, which call purgeExpiredPhotos directly).
+  if (config.appEnv !== "test") {
+    const stop = startPurgeSchedule(db, storage, app.log);
+    app.addHook("onClose", async () => stop());
+  }
   return app;
 }

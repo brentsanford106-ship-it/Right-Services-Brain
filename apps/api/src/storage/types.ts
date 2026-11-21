@@ -5,6 +5,8 @@
 export interface ObjectStorage {
   put(key: string, data: Buffer, contentType: string): Promise<void>;
   get(key: string): Promise<Buffer | null>;
+  /** Removes a stored file. Removing a file that is already gone is not an error. */
+  delete(key: string): Promise<void>;
 }
 
 const KEY = /^org\/[0-9a-f-]{36}\/photos\/[0-9a-f-]{36}(\/(original|preview))?$/;

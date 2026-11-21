@@ -49,7 +49,23 @@ This is a development build. **It is not secure for real data yet.** The items u
 
 ## Deleting and sharing photos (added 2026-11-21)
 
-- **Delete is a soft delete.** A deleted photo disappears from every screen and every API answer, but its record and files are kept. Owners and managers (`photos.delete_any`) see it under **Recently deleted** on the job's web page and can restore it. Everyone can delete photos they took themselves; only owners and managers can delete other people's photos. Every delete and restore is in the audit log. Permanently removing old deleted photos is not built yet.
+- **Delete is a soft delete.** A deleted photo disappears from every screen and every API answer, but its record and files are kept. Owners and managers (`photos.delete_any`) see it under **Recently deleted** on the job's web page and can restore it. Everyone can delete photos they took themselves; only owners and managers can delete other people's photos. Every delete and restore is in the audit log. Deleted photos are removed for good after the company's keep time (see below).
 - **Photos never uploaded** and deleted on the phone are erased from the phone for good (there is no server copy).
 - **Sharing/exporting takes a photo outside the app's protection.** Once a photo is sent by Messages or Mail, or downloaded, the company no longer controls that copy. To limit the risk: sharing needs the `photos.export` permission (on for owners, managers and employees by default; it can be removed per role), every shared or downloaded photo is recorded in the audit log *before* it leaves, the shared copy is the display-size JPEG with location data removed (not the original), and on the phone the temporary unencrypted copy is deleted as soon as the share screen closes (and the scratch folder is emptied at every app start).
 - Only photos that have finished uploading can be shared, and sharing needs a connection, so the audit record cannot be skipped.
+
+## Delete forever and the Recently Deleted keep time (added 2026-11-21)
+
+- **Delete forever** (`photos.purge`, owners only by default) erases a photo that is already in Recently Deleted: its database record, its review flags and both stored image files. It can't be undone. The audit log keeps a `photo.purged` entry (who, when, which job) but no picture or note text.
+- The app's database login has **no general right to delete photos**. It can only call `app.purge_deleted_photo()`, which refuses any photo that isn't already soft-deleted, and only in the company the request is working in. Files are deleted only after the database change has committed, so a failed request never loses a file.
+- **Keep time:** each company chooses 7, 14, 30 (default), 60 or 90 days (`org.manage`, owners only by default). The server runs a clean-up every hour (first run 30 seconds after start-up) that removes photos past their own company's keep time, each inside that company's own data scope, audited as `photo.purged` with no person as actor. Clean-up only runs while the server is running; nothing is deployed yet.
+- Known limit: if deleting a file fails after the record is gone, the error is logged and the file needs manual clean-up. Backups (when they exist) will still hold purged photos until the backup expires; that must be documented for customers when backups are set up.
+
+## Team & roles (added 2026-11-21)
+
+- Owners (or anyone given `roles.manage`) can create custom roles, edit the Manager and Employee presets, and choose each person's roles, on the website. The phone shows a read-only team list.
+- **No escalation:** to create, edit, delete or assign a role you must already hold every permission that role has, before and after the change. So someone with `roles.manage` but not owner can't touch the Owner role, an owner's roles, or create a role stronger than themselves. (A broader permission covers its narrow twin, e.g. "see all jobs" covers "see assigned jobs".)
+- **The Owner role is locked** by a database trigger: always every permission, can't be renamed or deleted. Built-in roles can't be deleted.
+- **A company always keeps an active owner:** a database trigger rejects any change that would leave none, so both co-owners can be owners, and one can step down only while another remains.
+- Everything is company-scoped (row-level security plus explicit checks; another company's ids return 404). Every change is audited (`role.created`, `role.updated`, `role.deleted`, `member.roles_changed`, `org.settings_updated`). Denied attempts are audited too.
+- Not built: inviting or removing people (needs real sign-in). The phone picks up permission changes the next time Home loads with a connection; the server always checks the current permissions on every request regardless.

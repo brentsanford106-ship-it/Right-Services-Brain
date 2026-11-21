@@ -13,6 +13,11 @@ export interface Database {
   asUser<T>(userId: string, fn: (tx: Tx) => Promise<T>): Promise<T>;
   /** Runs fn in a transaction scoped to one organization. RLS restricts every query to that organization. */
   asOrg<T>(userId: string, orgId: string, fn: (tx: Tx) => Promise<T>): Promise<T>;
+  /**
+   * Runs fn scoped to one organization with NO user (background jobs such as the Recently Deleted clean-up).
+   * RLS still restricts every query to that organization. Never use this for a request.
+   */
+  asSystemInOrg<T>(orgId: string, fn: (tx: Tx) => Promise<T>): Promise<T>;
   /** Runs fn with no user or organization context (RLS returns nothing tenant-scoped). */
   anonymous<T>(fn: (tx: Tx) => Promise<T>): Promise<T>;
   close(): Promise<void>;
@@ -52,6 +57,7 @@ export function createDatabase(connectionString: string): Database {
     pool,
     asUser: (userId, fn) => run({ userId }, fn),
     asOrg: (userId, orgId, fn) => run({ userId, orgId }, fn),
+    asSystemInOrg: (orgId, fn) => run({ orgId }, fn),
     anonymous: (fn) => run({}, fn),
     close: () => pool.end(),
   };

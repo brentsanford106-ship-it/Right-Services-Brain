@@ -88,3 +88,12 @@ button.danger { color: #fff; background: #b3261e; border-color: #b3261e; }
 button.danger:disabled { opacity: .5; }
 .deleted { margin-top: 24px; } .deleted summary { cursor: pointer; font-weight: 600; } .deleted .row { gap: 6px; }
 :root[data-theme="light"] { color-scheme: light; } :root[data-theme="dark"] { color-scheme: dark; }
+/* Team & roles */
+.badge { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--line); vertical-align: middle; } .badge.warn { background: var(--warnbg); color: var(--warn); }
+.editor { display: grid; gap: 10px; width: 100%; margin-top: 8px; }
+.editor fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; display: grid; gap: 6px; } .editor legend { font-weight: 600; padding: 0 4px; }
+.editor input[type="text"], .editor label > input:not([type]) { display: block; width: 100%; max-width: 360px; margin-top: 4px; font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+.check { display: flex; align-items: center; gap: 8px; cursor: pointer; } .check.disabled { opacity: .6; cursor: not-allowed; }
+.warnbox { background: var(--warnbg); color: var(--warn); padding: 8px 12px; border-radius: 6px; }
+.row .headrow { width: 100%; }
+select { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }

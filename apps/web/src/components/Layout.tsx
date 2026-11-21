@@ -11,10 +11,13 @@ export function Layout() {
   // Most people belong to one company; only show the switcher to someone who belongs to several.
   const me = useQuery({ queryKey: ["me"], queryFn: () => api<MeResponse>("/v1/me") });
   const manyCompanies = (me.data?.memberships?.length ?? 0) > 1;
+  const perms = ctx.data?.permissions ?? [];
+  const seesTeam = perms.includes("roles.manage") || perms.includes("members.read");
   const nav = [
     { to: "", label: "Overview" },
     { to: "jobs", label: "Jobs" },
     { to: "photos", label: "Find photos" },
+    ...(seesTeam ? [{ to: "team", label: "Team & roles" }] : []),
     { to: "settings", label: "Settings" },
   ];
 
