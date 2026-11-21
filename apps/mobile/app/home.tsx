@@ -88,19 +88,22 @@ export default function Home() {
       />
       <DevBanner />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 14 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}>
-        <View style={{ height: 190, borderRadius: 16, overflow: "hidden", justifyContent: "space-between" }}>
-          <Image
-            source={require("../assets/brand/hero.jpg")}
-            resizeMode="cover"
-            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" }}
-            accessibilityIgnoresInvertColors
-          />
-          <View style={{ alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 10, padding: 6, margin: 12 }}>
-            <Logo height={34} />
+        {/* Photo on top (nothing covering the crew member), welcome text underneath. */}
+        <View style={{ borderRadius: 16, overflow: "hidden", backgroundColor: C.card, borderWidth: 1, borderColor: C.line }}>
+          <View style={{ height: 180 }}>
+            <Image
+              source={require("../assets/brand/hero.jpg")}
+              resizeMode="cover"
+              style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" }}
+              accessibilityIgnoresInvertColors
+            />
+            <View style={{ position: "absolute", top: 10, right: 10, backgroundColor: "#fff", borderRadius: 8, padding: 4 }}>
+              <Logo height={26} />
+            </View>
           </View>
-          <View style={{ backgroundColor: "rgba(20,20,24,0.62)", paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 3, borderTopColor: C.brand }}>
-            <Text style={{ fontSize: 22, fontWeight: "700", color: "#fff" }}>Hi, {firstName}</Text>
-            <Text style={{ color: "#e6e8eb", marginTop: 2 }}>{app.session.orgName}</Text>
+          <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 3, borderTopColor: C.brand }}>
+            <Text style={{ fontSize: 22, fontWeight: "700", color: C.text }}>Hi, {firstName}</Text>
+            <Text style={[s.muted, { marginTop: 2 }]}>{app.session.orgName}</Text>
           </View>
         </View>
 
