@@ -2,6 +2,7 @@ import pg from "pg";
 import { loadLocalEnv, requireEnv } from "./env.js";
 import { ensureAppLogin, migrate } from "./migrate.js";
 import { seed } from "./seed.js";
+import { parseOwners, setupCompany } from "./setup-company.js";
 
 async function main(): Promise<void> {
   loadLocalEnv();
@@ -25,8 +26,15 @@ async function main(): Promise<void> {
       await seed(client, appEnv);
       console.log("synthetic demo data loaded");
     }
-    if (!["migrate", "seed", "reset"].includes(command ?? "")) {
-      throw new Error("usage: cli.ts migrate|seed|reset");
+    if (command === "setup-company") {
+      const nameAt = process.argv.indexOf("--name");
+      const name = nameAt > 0 ? (process.argv[nameAt + 1] ?? "") : "";
+      const r = await setupCompany(client, name, parseOwners(process.argv));
+      console.log(`${r.created ? "created" : "found"} company ${r.orgId}; owners added: ${r.invited.length ? r.invited.join(", ") : "none new"}`);
+      console.log("Each owner gets in by signing in with Microsoft using that email address.");
+    }
+    if (!["migrate", "seed", "reset", "setup-company"].includes(command ?? "")) {
+      throw new Error('usage: cli.ts migrate|seed|reset|setup-company --name "Company" --owner "email:Full Name" [--owner ...]');
     }
   } finally {
     await client.end();

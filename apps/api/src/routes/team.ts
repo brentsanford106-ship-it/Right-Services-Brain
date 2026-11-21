@@ -330,11 +330,11 @@ export async function teamRoutes(app: FastifyInstance, { db, config }: RouteDeps
     return inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("members.manage", "roles.manage");
       const { rows } = await tx.query<{ id: string; email: string; display_name: string; job_title: string | null; roles: { id: string; name: string }[] | null; invited_by: string; created_at: Date }>(
-        `SELECT i.id, i.email, i.display_name, i.job_title, iu.display_name AS invited_by, i.created_at,
+        `SELECT i.id, i.email, i.display_name, i.job_title, COALESCE(iu.display_name, 'Company setup') AS invited_by, i.created_at,
                 (SELECT json_agg(json_build_object('id', r.id, 'name', r.name) ORDER BY r.name) FROM roles r WHERE r.id = ANY (i.role_ids)) AS roles
            FROM member_invites i
-           JOIN organization_memberships im ON im.organization_id = i.organization_id AND im.id = i.invited_by_membership_id
-           JOIN users iu ON iu.id = im.user_id
+           LEFT JOIN organization_memberships im ON im.organization_id = i.organization_id AND im.id = i.invited_by_membership_id
+           LEFT JOIN users iu ON iu.id = im.user_id
           WHERE i.accepted_at IS NULL AND i.revoked_at IS NULL
           ORDER BY i.created_at DESC`,
       );

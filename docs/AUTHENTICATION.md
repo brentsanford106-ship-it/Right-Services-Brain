@@ -16,6 +16,16 @@
 
 **Rules the server enforces** (tested): only people with "Add people by email, and suspend or remove people" (owners by default) can do this. You can't add someone with a role stronger than your own, and you can't suspend or remove someone with permissions you don't have. A company always keeps an active owner. Everything is audited, without copying email addresses into the audit log.
 
+## Setting up the real company (first owners)
+
+Nobody is in a new company yet, so nobody can add the first owners from the app. The setup tool does it, once per database:
+
+```
+pnpm db:setup-company --name "Right Services" --owner "nate@example.com:Nate" --owner "jb@example.com:JB"
+```
+
+It creates the company with the Owner, Manager and Employee roles and adds each email as an Owner (shown as "added by Company setup"). Each owner gets in by signing in with Microsoft using that email. Running it again doesn't duplicate anything. It needs the database admin connection, so only someone with the admin password can run it. Tested in `apps/api/test/setup-company.test.ts`.
+
 ## Technical summary
 
 | Part | What it does | Where |

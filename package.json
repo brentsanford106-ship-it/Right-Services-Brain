@@ -11,6 +11,7 @@
     "db:down": "docker compose down",
     "db:migrate": "pnpm --filter @rsb/db migrate",
     "db:seed": "pnpm --filter @rsb/db seed",
+    "db:setup-company": "pnpm --filter @rsb/db setup-company",
     "db:reset": "pnpm --filter @rsb/db reset",
     "dev:api": "pnpm --filter @rsb/api dev",
     "dev:web": "pnpm --filter @rsb/web dev",

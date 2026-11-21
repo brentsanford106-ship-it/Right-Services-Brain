@@ -10,6 +10,7 @@
     "migrate": "tsx src/cli.ts migrate",
     "seed": "tsx src/cli.ts seed",
     "reset": "tsx src/cli.ts reset",
+    "setup-company": "tsx src/cli.ts setup-company",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
