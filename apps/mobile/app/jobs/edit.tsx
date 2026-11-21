@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } fro
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { ApiError, NetworkError } from "@rsb/photo-sync";
 import { useApp, type Job } from "../../src/state";
-import { Button, Chip, s } from "../../src/ui";
+import { Button, C, Chip, s } from "../../src/ui";
 
 const STATUSES = [
   { value: "planned", label: "Planned" },
@@ -72,19 +72,19 @@ export default function EditJob() {
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
         <View>
           <Text style={s.label}>Job number</Text>
-          <TextInput style={[s.input, jobId ? { opacity: 0.6 } : null]} editable={!jobId} value={jobNumber} onChangeText={setJobNumber} autoCapitalize="characters" autoCorrect={false} placeholder="HP-1004" />
+          <TextInput style={[s.input, jobId ? { opacity: 0.6 } : null]} editable={!jobId} value={jobNumber} onChangeText={setJobNumber} autoCapitalize="characters" autoCorrect={false} placeholder="HP-1004" placeholderTextColor={C.muted} />
         </View>
         <View>
           <Text style={s.label}>Job name</Text>
-          <TextInput style={s.input} value={title} onChangeText={setTitle} placeholder="Canopy light replacement" />
+          <TextInput style={s.input} value={title} onChangeText={setTitle} placeholder="Canopy light replacement" placeholderTextColor={C.muted} />
         </View>
         <View>
           <Text style={s.label}>Site name (optional)</Text>
-          <TextInput style={s.input} value={siteName} onChangeText={setSiteName} placeholder="Station 12" />
+          <TextInput style={s.input} value={siteName} onChangeText={setSiteName} placeholder="Station 12" placeholderTextColor={C.muted} />
         </View>
         <View>
           <Text style={s.label}>Site address (optional)</Text>
-          <TextInput style={s.input} value={siteAddress} onChangeText={setSiteAddress} placeholder="Street, city" />
+          <TextInput style={s.input} value={siteAddress} onChangeText={setSiteAddress} placeholder="Street, city" placeholderTextColor={C.muted} />
         </View>
         <View>
           <Text style={s.label}>Status</Text>

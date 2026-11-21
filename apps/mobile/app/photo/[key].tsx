@@ -117,7 +117,7 @@ export default function Review() {
               maxLength={NOTE_MAX}
               value={draft ?? ""}
               onChangeText={setDraft}
-              placeholder="Add a note (optional)"
+              placeholder="Add a note (optional)" placeholderTextColor={C.muted}
             />
             {noteChanged ? (
               <Button title="Save note" style={{ marginTop: 10 }} busy={saving} onPress={() => void change({ note: (draft ?? "").trim() || null })} />

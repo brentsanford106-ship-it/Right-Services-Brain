@@ -116,7 +116,7 @@ export default function Login() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="url"
-                placeholder="http://192.168.1.20:4000"
+                placeholder="http://192.168.1.20:4000" placeholderTextColor={C.muted}
               />
               <Button
                 kind="secondary"

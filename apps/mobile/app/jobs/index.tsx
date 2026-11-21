@@ -67,7 +67,7 @@ export default function Jobs() {
     <View style={s.screen}>
       <Stack.Screen
         options={{
-          title: app.session?.orgName ?? "Jobs",
+          title: "Jobs",
           headerRight: () => (
             <Pressable onPress={() => router.push("/settings")} hitSlop={12}>
               <Text style={{ color: C.brand, fontSize: 16 }}>Settings</Text>
@@ -85,11 +85,12 @@ export default function Jobs() {
         </Text>
       </Pressable>
       <View style={{ padding: 16, paddingBottom: 8 }}>
+        {app.session?.orgName ? <Text style={[s.muted, { marginBottom: 8 }]}>{app.session.orgName}</Text> : null}
         <TextInput
           style={s.input}
           value={q}
           onChangeText={setQ}
-          placeholder="Search job number or name"
+          placeholder="Search job number or name" placeholderTextColor={C.muted}
           autoCorrect={false}
           clearButtonMode="while-editing"
         />
