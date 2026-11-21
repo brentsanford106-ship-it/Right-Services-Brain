@@ -1,5 +1,5 @@
 import { webcrypto } from "node:crypto";
-import type { BlobStore, Cipher } from "./vault.js";
+import type { BlobStore, Cipher } from "./vault";
 
 /** In-memory file store for tests. */
 export class MemoryBlobStore implements BlobStore {

@@ -10,11 +10,12 @@ import {
   VaultLockedError,
   retryDelayMs,
   syncStateOf,
+  toBase64,
   type CreatePhotoBody,
   type PhotoApi,
   type ServerPhoto,
-} from "../src/index.js";
-import { MemoryBlobStore, WebCryptoCipher } from "../src/testing.js";
+} from "../src/index";
+import { MemoryBlobStore, WebCryptoCipher } from "../src/testing";
 
 const ORG = "0a000000-0000-4800-8000-000000000001";
 const JOB = "00000000-0000-4c00-8000-000000000101";
@@ -145,6 +146,15 @@ describe("encrypted offline storage", () => {
     const reopened = await freshQueue();
     expect(reopened.all()).toHaveLength(0);
     expect(store.files.has("o-11111111-1111-4111-8111-111111111111")).toBe(false);
+  });
+
+  it("decrypts images to base64 for display without writing them to disk", async () => {
+    const a = await shot(1);
+    expect(await queue.imageBase64(a.localId, "thumbnail")).toBe(Buffer.from("THUMB-1").toString("base64"));
+    for (const n of [0, 1, 2, 3, 4, 5]) {
+      const b = new Uint8Array(n).map((_, i) => i * 37);
+      expect(toBase64(b)).toBe(Buffer.from(b).toString("base64"));
+    }
   });
 
   it("sign-out wipes everything", async () => {

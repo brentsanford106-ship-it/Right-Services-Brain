@@ -1,0 +1,324 @@
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { AppState } from "react-native";
+import * as SecureStore from "expo-secure-store";
+import * as Network from "expo-network";
+import * as Crypto from "expo-crypto";
+import { File } from "expo-file-system";
+import { fetch as expoFetch } from "expo/fetch";
+import {
+  ApiError,
+  HttpClient,
+  NetworkError,
+  OwnerMismatchError,
+  PhotoQueue,
+  SyncEngine,
+  Vault,
+  type FetchLike,
+  type SyncStatus,
+} from "@rsb/photo-sync";
+import { ExpoBlobStore, ExpoCipher, clearScratch, deleteQuietly, scratchDir } from "./platform";
+
+/** What we remember between app launches (kept in the iOS Keychain). No passwords; the dev token is never stored. */
+export interface Session {
+  subject: string;
+  displayName: string;
+  orgId: string;
+  orgName: string;
+  permissions: string[];
+}
+
+export interface Job {
+  id: string;
+  jobNumber: string;
+  title: string;
+  status: string;
+  siteName: string | null;
+  siteAddress: string | null;
+}
+
+const SESSION_KEY = "rsb.session.v1";
+const SERVER_KEY = "rsb.server.v1";
+const OPTS: SecureStore.SecureStoreOptions = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY };
+const SYNC_EVERY_MS = 60_000;
+const KEEP_SYNCED_DETAILS_MS = 7 * 24 * 3600_000;
+
+export const DEFAULT_SERVER = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.10:4000";
+
+const fetchLike: FetchLike = async (url, init) => {
+  const res = await expoFetch(url, { method: init.method, headers: init.headers, body: init.body as string | undefined, signal: init.signal });
+  return { status: res.status, ok: res.ok, text: () => res.text() };
+};
+
+/**
+ * Sends the image with iOS's native uploader. "background" lets iOS finish a transfer that
+ * is already under way if the app is put in the background. The file sent is a temporary
+ * decrypted copy in the app's private cache, deleted as soon as the upload ends.
+ */
+async function putBytes(url: string, headers: Record<string, string>, bytes: Uint8Array) {
+  const tmp = new File(scratchDir(), `up-${Crypto.randomUUID()}.jpg`);
+  try {
+    tmp.create();
+    await tmp.write(bytes);
+    const res = await tmp.upload(url, { httpMethod: "PUT", headers, mimeType: headers["content-type"], sessionType: "background" });
+    return { status: res.status, ok: res.status >= 200 && res.status < 300, text: async () => res.body };
+  } finally {
+    deleteQuietly(tmp.uri);
+  }
+}
+
+interface Ctx {
+  ready: boolean;
+  /** The vault key or files could not be read. Shown as a blocking error; nothing is deleted automatically. */
+  fatal: string | null;
+  server: string;
+  setServer(url: string): Promise<void>;
+  session: Session | null;
+  api: HttpClient;
+  queue: PhotoQueue;
+  engine: SyncEngine;
+  online: boolean;
+  signIn(subject: string, displayName: string): Promise<{ orgs: { organizationId: string; organizationName: string }[] }>;
+  chooseOrg(orgId: string, orgName: string): Promise<void>;
+  signOut(): Promise<void>;
+  syncNow(): void;
+  can(permission: string): boolean;
+  /** Current access token, for loading server images with an Authorization header. */
+  token(): Promise<string | null>;
+  /** Encrypted offline copy of lists fetched from the server (jobs, photo details), so screens work without signal. */
+  cache: { get<T>(key: string): Promise<T | null>; put(key: string, value: unknown): Promise<void> };
+}
+
+const AppCtx = createContext<Ctx | null>(null);
+
+export function useApp(): Ctx {
+  const c = useContext(AppCtx);
+  if (!c) throw new Error("useApp outside provider");
+  return c;
+}
+
+/** Re-renders when the photo queue changes. */
+export function useQueueVersion(): number {
+  const { queue } = useApp();
+  const ver = useRef(0);
+  return useSyncExternalStore(
+    (cb) => queue.subscribe(() => { ver.current++; cb(); }),
+    () => ver.current,
+  );
+}
+
+export function useSyncStatus(): SyncStatus {
+  const { engine } = useApp();
+  return useSyncExternalStore((cb) => engine.subscribe(cb), () => engine.getStatus());
+}
+
+export function AppProvider({ children }: { children: React.ReactNode }) {
+  const [ready, setReady] = useState(false);
+  const [fatal, setFatal] = useState<string | null>(null);
+  const [server, setServerState] = useState(DEFAULT_SERVER);
+  const [session, setSession] = useState<Session | null>(null);
+  const [online, setOnline] = useState(true);
+  const serverRef = useRef(server);
+  const sessionRef = useRef<Session | null>(null);
+  const pendingSubject = useRef<{ subject: string; displayName: string } | null>(null);
+  const token = useRef<{ value: string; expiresAt: number; subject: string } | null>(null);
+  const holder = useRef<{ queue: PhotoQueue; engine: SyncEngine; api: HttpClient; vault: Vault } | null>(null);
+
+  const issueDevToken = useCallback(async (subject: string): Promise<string> => {
+    let res;
+    try {
+      res = await fetchLike(`${serverRef.current}/dev/auth/token`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ subject }),
+      });
+    } catch {
+      throw new NetworkError();
+    }
+    const text = await res.text();
+    if (!res.ok) {
+      const err = text ? (JSON.parse(text) as { error?: { code?: string; message?: string } }).error : undefined;
+      throw new ApiError(res.status, err?.code ?? "error", err?.message ?? "Sign-in failed.");
+    }
+    const body = JSON.parse(text) as { accessToken: string; expiresIn: number };
+    token.current = { value: body.accessToken, expiresAt: Date.now() + body.expiresIn * 1000, subject };
+    return body.accessToken;
+  }, []);
+
+  // DEVELOPMENT sign-in: a fresh 15-minute token is requested whenever needed. Real sign-in (Microsoft Entra
+  // External ID with refresh tokens) replaces this before any real data is used.
+  const getToken = useCallback(async (): Promise<string | null> => {
+    const subject = sessionRef.current?.subject ?? pendingSubject.current?.subject;
+    if (!subject) return null;
+    const t = token.current;
+    if (t && t.subject === subject && t.expiresAt - Date.now() > 60_000) return t.value;
+    try {
+      return await issueDevToken(subject);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 401) {
+        // The account was disabled or removed: treat as revoked.
+        await revokeRef.current?.();
+        return null;
+      }
+      throw e;
+    }
+  }, [issueDevToken]);
+
+  const revokeRef = useRef<(() => Promise<void>) | null>(null);
+
+  if (!holder.current) {
+    // Created synchronously so screens always have objects to use; the vault is opened in the effect below.
+    const api = new HttpClient({ baseUrl: serverRef.current, getToken, fetch: fetchLike, putBytes });
+    const vault = new Vault(new ExpoBlobStore(), { seal: async () => { throw new Error("not ready"); }, open: async () => { throw new Error("not ready"); } });
+    const queue = new PhotoQueue(vault, { uuid: Crypto.randomUUID });
+    holder.current = { api, vault, queue, engine: new SyncEngine(queue, api) };
+  }
+
+  const rebuild = useCallback((cipher: ExpoCipher, base: string) => {
+    const api = new HttpClient({ baseUrl: base, getToken, fetch: fetchLike, putBytes });
+    const vault = new Vault(new ExpoBlobStore(), cipher);
+    const queue = new PhotoQueue(vault, { uuid: Crypto.randomUUID });
+    holder.current = { api, vault, queue, engine: new SyncEngine(queue, api) };
+    return holder.current;
+  }, [getToken]);
+
+  const [, force] = useState(0);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        clearScratch(); // leftovers from an upload interrupted by the app closing
+        const savedServer = await SecureStore.getItemAsync(SERVER_KEY, OPTS);
+        if (savedServer) {
+          serverRef.current = savedServer;
+          setServerState(savedServer);
+        }
+        const cipher = await ExpoCipher.load();
+        const h = rebuild(cipher, serverRef.current);
+        await h.queue.load();
+        await h.queue.pruneSynced(KEEP_SYNCED_DETAILS_MS);
+        const raw = await SecureStore.getItemAsync(SESSION_KEY, OPTS);
+        if (raw) {
+          const s = JSON.parse(raw) as Session;
+          sessionRef.current = s;
+          setSession(s);
+        }
+        force((n) => n + 1);
+      } catch (e) {
+        setFatal(e instanceof Error ? e.message : "The app's secure storage could not be opened.");
+      } finally {
+        setReady(true);
+      }
+    })();
+  }, [rebuild]);
+
+  const syncNow = useCallback((forceRun = true) => {
+    if (!sessionRef.current || !holder.current) return;
+    void holder.current.engine.run({ force: forceRun }).catch(() => undefined);
+  }, []);
+
+  // Sync triggers: connection comes back, app comes to the front, and a timer while the app is open.
+  useEffect(() => {
+    const net = Network.addNetworkStateListener((s) => {
+      const up = s.isConnected === true && s.isInternetReachable !== false;
+      setOnline(up);
+      if (up) syncNow(true);
+    });
+    void Network.getNetworkStateAsync().then((s) => setOnline(s.isConnected === true && s.isInternetReachable !== false));
+    const app = AppState.addEventListener("change", (st) => {
+      if (st === "active") syncNow(true);
+    });
+    const timer = setInterval(() => {
+      if (AppState.currentState === "active") syncNow(false);
+    }, SYNC_EVERY_MS);
+    return () => {
+      net.remove();
+      app.remove();
+      clearInterval(timer);
+    };
+  }, [syncNow]);
+
+  useEffect(() => {
+    if (session && ready) syncNow(true);
+  }, [session, ready, syncNow]);
+
+  const wipeAll = useCallback(async () => {
+    await holder.current?.queue.wipe();
+    await ExpoCipher.destroyKey(); // crypto-shred: even a missed file can no longer be decrypted
+    await SecureStore.deleteItemAsync(SESSION_KEY, OPTS);
+    token.current = null;
+    sessionRef.current = null;
+    pendingSubject.current = null;
+    setSession(null);
+    const cipher = await ExpoCipher.load(); // fresh key for the next person
+    const h = rebuild(cipher, serverRef.current);
+    await h.queue.load();
+    force((n) => n + 1);
+  }, [rebuild]);
+  revokeRef.current = wipeAll;
+
+  const value = useMemo<Ctx>(() => {
+    const h = holder.current!;
+    return {
+      ready,
+      fatal,
+      server,
+      session,
+      online,
+      api: h.api,
+      queue: h.queue,
+      engine: h.engine,
+      async setServer(url: string) {
+        const clean = url.trim().replace(/\/+$/, "");
+        if (!/^https?:\/\/[^\s/]+$/.test(clean)) throw new Error("Enter an address like http://192.168.1.20:4000");
+        serverRef.current = clean;
+        setServerState(clean);
+        await SecureStore.setItemAsync(SERVER_KEY, clean, OPTS);
+        const cipher = await ExpoCipher.load();
+        const nh = rebuild(cipher, clean);
+        await nh.queue.load();
+        force((n) => n + 1);
+      },
+      async signIn(subject: string, displayName: string) {
+        const q = holder.current!.queue;
+        const owner = q.getOwner();
+        if (owner && owner.subject !== subject && q.pending().length > 0) throw new OwnerMismatchError(owner);
+        pendingSubject.current = { subject, displayName };
+        token.current = null;
+        await issueDevToken(subject);
+        const me = await holder.current!.api.get<{ memberships: { organizationId: string; organizationName: string }[] }>("/v1/me");
+        return { orgs: me.memberships };
+      },
+      async chooseOrg(orgId: string, orgName: string) {
+        const p = pendingSubject.current ?? (sessionRef.current ? { subject: sessionRef.current.subject, displayName: sessionRef.current.displayName } : null);
+        if (!p) throw new Error("Sign in first.");
+        const ctx = await holder.current!.api.get<{ permissions: string[] }>(`/v1/orgs/${orgId}`);
+        await holder.current!.queue.claim({ subject: p.subject, displayName: p.displayName });
+        const s: Session = { subject: p.subject, displayName: p.displayName, orgId, orgName, permissions: ctx.permissions };
+        await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(s), OPTS);
+        sessionRef.current = s;
+        pendingSubject.current = null;
+        setSession(s);
+      },
+      signOut: wipeAll,
+      syncNow: () => syncNow(true),
+      can: (perm: string) => !!session?.permissions.includes(perm),
+      token: () => getToken().catch(() => null),
+      cache: {
+        async get<T>(key: string) {
+          if (!session) return null;
+          try {
+            return await holder.current!.vault.getJson<T>(`c-${session.orgId}-${key}`);
+          } catch {
+            return null;
+          }
+        },
+        async put(key: string, value: unknown) {
+          if (session) await holder.current!.vault.putJson(`c-${session.orgId}-${key}`, value);
+        },
+      },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, fatal, server, session, online, rebuild, issueDevToken, wipeAll, syncNow, getToken, holder.current]);
+
+  return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
+}

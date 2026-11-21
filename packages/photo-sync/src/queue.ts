@@ -1,4 +1,4 @@
-import { Vault } from "./vault.js";
+import { Vault } from "./vault";
 
 export type Stage = "before" | "during" | "after";
 
@@ -315,6 +315,18 @@ export class PhotoQueue {
     });
   }
 
+  /**
+   * Someone else (e.g. a manager) may have changed a photo on the server. If this phone has no
+   * unsent change of its own for that photo, take the server's values.
+   */
+  async absorbServer(s: { id: string; flagged: boolean; note: string | null; stage: string }): Promise<void> {
+    const cur = this.findByServerId(s.id);
+    if (!cur || cur.dirty || !cur.recorded) return;
+    if (s.stage !== "before" && s.stage !== "during" && s.stage !== "after") return;
+    if (cur.flagged === s.flagged && cur.note === s.note && cur.stage === s.stage) return;
+    await this.update(cur.localId, (p) => (p.dirty ? p : { ...p, flagged: s.flagged, note: s.note, stage: s.stage as Stage }));
+  }
+
   /** Used by the sync engine. Applies `fn` to the latest copy of the record and saves it. */
   async update(localId: string, fn: (cur: QueuedPhoto) => QueuedPhoto): Promise<QueuedPhoto | null> {
     return this.exclusive(async () => {
@@ -330,6 +342,11 @@ export class PhotoQueue {
 
   readOriginal(localId: string): Promise<Uint8Array | null> {
     return this.vault.getBytes(originalName(localId));
+  }
+
+  /** base64 image data for display. */
+  imageBase64(localId: string, which: "thumbnail" | "original"): Promise<string | null> {
+    return this.vault.getBase64(which === "thumbnail" ? thumbName(localId) : originalName(localId));
   }
 
   readThumbnail(localId: string): Promise<Uint8Array | null> {

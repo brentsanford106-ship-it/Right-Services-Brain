@@ -1,4 +1,4 @@
-import type { Stage } from "./queue.js";
+import type { Stage } from "./queue";
 
 /** The server answered with an error. */
 export class ApiError extends Error {

@@ -1,5 +1,5 @@
-import { ApiError, NetworkError, type CreatePhotoBody, type PhotoApi, type ServerPhoto } from "./api.js";
-import type { PhotoQueue, QueuedPhoto } from "./queue.js";
+import { ApiError, NetworkError, type CreatePhotoBody, type PhotoApi, type ServerPhoto } from "./api";
+import type { PhotoQueue, QueuedPhoto } from "./queue";
 
 export type StopReason = "offline" | "sign_in_required" | null;
 
