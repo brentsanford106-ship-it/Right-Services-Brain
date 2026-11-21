@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { NOTE_MAX, type Stage } from "@rsb/photo-sync";
@@ -31,6 +31,10 @@ export default function Review() {
   useEffect(() => {
     if (item && draft === null) setDraft(item.note ?? "");
   }, [item, draft]);
+
+  // A typed note must never be lost just because someone left the screen without tapping "Save note".
+  const pendingNote = useRef<(() => void) | null>(null);
+  useEffect(() => () => pendingNote.current?.(), []);
 
   if (!item) {
     return (
@@ -68,9 +72,11 @@ export default function Review() {
   };
 
   const noteChanged = (draft ?? "") !== (item.note ?? "");
+  const saveNote = () => change({ note: (draft ?? "").trim() || null });
   const imgH = Math.min(height * 0.55, width * 1.33);
   const own = !item.server || item.server.uploadedBy === app.session?.displayName;
   const canEdit = own ? app.can("photos.upload") : app.can("photo_flags.manage");
+  pendingNote.current = noteChanged && canEdit ? () => void saveNote() : null;
 
   return (
     <KeyboardAvoidingView style={s.screen} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -117,10 +123,11 @@ export default function Review() {
               maxLength={NOTE_MAX}
               value={draft ?? ""}
               onChangeText={setDraft}
+              onBlur={() => pendingNote.current?.()}
               placeholder="Add a note (optional)" placeholderTextColor={C.muted}
             />
             {noteChanged ? (
-              <Button title="Save note" style={{ marginTop: 10 }} busy={saving} onPress={() => void change({ note: (draft ?? "").trim() || null })} />
+              <Button title="Save note" style={{ marginTop: 10 }} busy={saving} onPress={() => void saveNote()} />
             ) : null}
           </View>
 

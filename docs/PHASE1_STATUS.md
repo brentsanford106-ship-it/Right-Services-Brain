@@ -1,21 +1,21 @@
 # Phase 1 status: photo management
 
-Last updated: 2026-11-21. Phase 1 is **not complete**. The acceptance flow passes as an automated test, but it has not yet been run on a real iPhone, and real sign-in is not built.
+Last updated: 2026-11-21. Phase 1 is **not complete**. The acceptance flow passes as an automated test, and most of it has now been done by hand on JB's real iPhone (iOS 26, through Expo Go) and Windows PC. Real sign-in, cloud storage and backups are not built.
 
 ## Acceptance flow
 
 | Step | Automated test (real server + database, over HTTP) | On a real iPhone |
 | --- | --- | --- |
-| Create job | Passes | Not yet tested |
-| Open camera | Not testable automatically (needs camera hardware) | Not yet tested |
-| Take multiple photos without confirming | Passes (queue + encryption) | Not yet tested |
-| Flag latest photo | Passes | Not yet tested |
-| Review thumbnail | Passes (thumbnail decrypts for display) | Not yet tested |
-| Add note | Passes | Not yet tested |
-| Resume camera | UI only | Not yet tested |
-| Capture offline | Passes (network switched off, app restarted while offline) | Not yet tested |
-| Reconnect and synchronize | Passes (nothing lost, no duplicates, originals byte-identical) | Not yet tested |
-| View photos on web | Passes (API) and web screen tests pass | Not yet tested in a real browser by you |
+| Create job | Passes | Form opens and fits the screen; saving a new job on the phone not confirmed yet |
+| Open camera | Not testable automatically (needs camera hardware) | Passed |
+| Take multiple photos without confirming | Passes (queue + encryption) | Passed |
+| Flag latest photo | Passes | Passed |
+| Review thumbnail | Passes (thumbnail decrypts for display) | Not confirmed yet |
+| Add note | Passes | Not confirmed: the note did not reach the web. Likely cause: the note only saved after tapping **Save note**. It now also saves when you leave the box or the screen. Needs re-test |
+| Resume camera | UI only | Not confirmed yet |
+| Capture offline | Passes (network switched off, app restarted while offline) | Passed (Airplane Mode, 3 photos showed "waiting to upload") |
+| Reconnect and synchronize | Passes (nothing lost, no duplicates, originals byte-identical) | Passed (all 3 uploaded automatically after reconnecting) |
+| View photos on web | Passes (API) and web screen tests pass | Passed (photos, stages and flag visible in Chrome on the PC) |
 | Flags, notes, stages and sync states persist | Passes | Not yet tested |
 
 Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real queue and upload code, with the iPhone's storage and encryption swapped for Node versions.
@@ -59,7 +59,8 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 - **Sign-in is simulated.** You pick a test person; there are no passwords. Real sign-in (Microsoft Entra External ID) is not built. Blocks real data.
 - **Cloud storage is not built.** Photos are stored on the server's disk (development only). The server refuses to start in staging/production without Azure Blob Storage, which is not implemented yet.
 - **No cloud backups yet.** Nothing is deployed. Backup and recovery are planned with Azure (database point-in-time restore, blob soft-delete/versioning); not set up.
-- **Not tested on a real iPhone.** Camera speed, encryption speed on large photos, GPS, and background upload behavior must be checked on a device.
+- **Real-iPhone testing is partial.** Done in Expo Go on one iPhone (iOS 26). Still to check on a device: notes after the fix, GPS, encryption speed on many large photos, upload while the app is in the background, and closing/reopening the app while offline. A standalone app build (not Expo Go) needs the paid Apple Developer account.
+- **Demo photos have no picture.** The made-up sample photo records have no image file, so they show "File not uploaded yet" / "Waiting for file". Their notes now say so.
 - **iPhone upload in the background is limited by iOS.** See `docs/IOS_SYNC.md`.
 - **Account revocation wipe** is triggered only when the server refuses to issue a token. Real-sign-in revocation is part of the real sign-in work.
 - **HEIC photos** are stored but have no preview (the app takes JPEG, so this only matters for future imports).

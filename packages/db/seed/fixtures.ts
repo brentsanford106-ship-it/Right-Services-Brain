@@ -113,10 +113,10 @@ export const jobs = [
 ] as const;
 
 export const photos = [
-  { id: "00000000-0000-4e00-8000-00000000a001", orgId: ORG_A, jobId: jobs[0].id, stage: "before", caption: "Canopy before retrofit (synthetic)", by: "00000000-0000-4b00-8000-00000000a003" },
-  { id: "00000000-0000-4e00-8000-00000000a002", orgId: ORG_A, jobId: jobs[0].id, stage: "after", caption: "Canopy after retrofit (synthetic)", by: "00000000-0000-4b00-8000-00000000a003" },
-  { id: "00000000-0000-4e00-8000-00000000a003", orgId: ORG_A, jobId: jobs[1].id, stage: "issue", caption: "Cracked slab near pump 3 (synthetic)", by: "00000000-0000-4b00-8000-00000000a004" },
-  { id: "00000000-0000-4e00-8000-00000000b001", orgId: ORG_B, jobId: jobs[3].id, stage: "before", caption: "Old sign (synthetic)", by: "00000000-0000-4b00-8000-00000000b002" },
+  { id: "00000000-0000-4e00-8000-00000000a001", orgId: ORG_A, jobId: jobs[0].id, stage: "before", caption: "Sample record with no picture: Canopy before retrofit (synthetic)", by: "00000000-0000-4b00-8000-00000000a003" },
+  { id: "00000000-0000-4e00-8000-00000000a002", orgId: ORG_A, jobId: jobs[0].id, stage: "after", caption: "Sample record with no picture: Canopy after retrofit (synthetic)", by: "00000000-0000-4b00-8000-00000000a003" },
+  { id: "00000000-0000-4e00-8000-00000000a003", orgId: ORG_A, jobId: jobs[1].id, stage: "issue", caption: "Sample record with no picture: Cracked slab near pump 3 (synthetic)", by: "00000000-0000-4b00-8000-00000000a004" },
+  { id: "00000000-0000-4e00-8000-00000000b001", orgId: ORG_B, jobId: jobs[3].id, stage: "before", caption: "Sample record with no picture: Old sign (synthetic)", by: "00000000-0000-4b00-8000-00000000b002" },
 ] as const;
 
 export const photoFlags = [
