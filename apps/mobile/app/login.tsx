@@ -56,7 +56,7 @@ export default function Login() {
         setError(`${u.displayName} isn't an active member of any company.`);
       } else if (list.length === 1) {
         await app.chooseOrg(list[0]!.organizationId, list[0]!.organizationName);
-        router.replace("/jobs");
+        router.replace("/home");
       } else {
         setOrgs(list);
       }
@@ -75,7 +75,7 @@ export default function Login() {
     setBusy(id);
     try {
       await app.chooseOrg(id, name);
-      router.replace("/jobs");
+      router.replace("/home");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't open that company.");
     } finally {

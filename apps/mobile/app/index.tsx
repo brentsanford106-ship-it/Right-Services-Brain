@@ -25,5 +25,5 @@ export default function Index() {
       </View>
     );
   }
-  return <Redirect href={session ? "/jobs" : "/login"} />;
+  return <Redirect href={session ? "/home" : "/login"} />;
 }

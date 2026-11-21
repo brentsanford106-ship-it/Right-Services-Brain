@@ -3,7 +3,7 @@ import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from "reac
 import { Stack, router, useFocusEffect } from "expo-router";
 import { NetworkError } from "@rsb/photo-sync";
 import { useApp, useQueueVersion, useSyncStatus, type Job } from "../../src/state";
-import { C, DevBanner, Empty, Logo, StatusPill, s } from "../../src/ui";
+import { C, DevBanner, Empty, StatusPill, s } from "../../src/ui";
 
 function matches(j: Job, q: string): boolean {
   const n = q.trim().toLowerCase();
@@ -68,7 +68,6 @@ export default function Jobs() {
       <Stack.Screen
         options={{
           title: "Jobs",
-          headerLeft: () => <Logo variant="mark" height={30} />,
           headerRight: () => (
             <Pressable onPress={() => router.push("/settings")} hitSlop={12}>
               <Text style={{ color: C.brand, fontSize: 16 }}>Settings</Text>

@@ -26,6 +26,7 @@ export default function RootLayout() {
         >
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ title: "Sign in" }} />
+          <Stack.Screen name="home" options={{ title: "Home" }} />
           <Stack.Screen name="jobs/index" options={{ title: "Jobs" }} />
           <Stack.Screen name="jobs/edit" options={{ title: "Job", presentation: "modal" }} />
           <Stack.Screen name="jobs/[jobId]/index" options={{ title: "Photos" }} />
