@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ImageBackground, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { useApp, useQueueVersion, useSyncStatus, type Job } from "../src/state";
 import { C, DevBanner, Logo, StatusPill, s } from "../src/ui";
@@ -88,12 +88,13 @@ export default function Home() {
       />
       <DevBanner />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 14 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}>
-        <ImageBackground
-          source={require("../assets/brand/hero.jpg")}
-          resizeMode="cover"
-          style={{ height: 190, borderRadius: 16, overflow: "hidden", justifyContent: "space-between" }}
-          accessibilityIgnoresInvertColors
-        >
+        <View style={{ height: 190, borderRadius: 16, overflow: "hidden", justifyContent: "space-between" }}>
+          <Image
+            source={require("../assets/brand/hero.jpg")}
+            resizeMode="cover"
+            style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" }}
+            accessibilityIgnoresInvertColors
+          />
           <View style={{ alignSelf: "flex-start", backgroundColor: "#fff", borderRadius: 10, padding: 6, margin: 12 }}>
             <Logo height={34} />
           </View>
@@ -101,7 +102,7 @@ export default function Home() {
             <Text style={{ fontSize: 22, fontWeight: "700", color: "#fff" }}>Hi, {firstName}</Text>
             <Text style={{ color: "#e6e8eb", marginTop: 2 }}>{app.session.orgName}</Text>
           </View>
-        </ImageBackground>
+        </View>
 
         <Pressable onPress={() => router.push("/sync")} style={({ pressed }) => ({ backgroundColor: upload.bg, borderRadius: 12, padding: 14, opacity: pressed ? 0.7 : 1 })}>
           <Text style={{ color: upload.fg, fontWeight: "700", fontSize: 16 }}>{upload.text} ›</Text>
