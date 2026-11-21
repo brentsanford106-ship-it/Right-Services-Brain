@@ -63,6 +63,8 @@ export const OrgContextResponse = z.object({
   membershipId: Uuid,
   roles: z.array(z.string()),
   permissions: z.array(z.string()),
+  /** People must sign in again after this many days (real sign-in; enforced by the apps when online). */
+  signInEveryDays: z.number().int(),
 });
 export type OrgContextResponse = z.infer<typeof OrgContextResponse>;
 
@@ -289,14 +291,19 @@ export type Member = z.infer<typeof Member>;
 
 // ---------------------------------------------------------------- company settings
 export const RETENTION_DAY_OPTIONS = [7, 14, 30, 60, 90] as const;
+export const SIGN_IN_DAY_OPTIONS = [1, 7, 14, 30, 60, 90] as const;
 export const OrgSettings = z.object({
   deletedPhotoRetentionDays: z.number().int(),
+  signInEveryDays: z.number().int(),
   canEdit: z.boolean(),
 });
 export type OrgSettings = z.infer<typeof OrgSettings>;
-export const UpdateOrgSettingsRequest = z.strictObject({
-  deletedPhotoRetentionDays: z.union([z.literal(7), z.literal(14), z.literal(30), z.literal(60), z.literal(90)]),
-});
+export const UpdateOrgSettingsRequest = z
+  .strictObject({
+    deletedPhotoRetentionDays: z.union([z.literal(7), z.literal(14), z.literal(30), z.literal(60), z.literal(90)]).optional(),
+    signInEveryDays: z.union([z.literal(1), z.literal(7), z.literal(14), z.literal(30), z.literal(60), z.literal(90)]).optional(),
+  })
+  .refine((b) => b.deletedPhotoRetentionDays !== undefined || b.signInEveryDays !== undefined, { message: "Nothing to change." });
 export type UpdateOrgSettingsRequest = z.infer<typeof UpdateOrgSettingsRequest>;
 
 // ---------------------------------------------------------------- team & roles

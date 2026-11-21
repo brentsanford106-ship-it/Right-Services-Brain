@@ -46,13 +46,13 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 - Photo flag/unflag, notes, stage changes (PATCH), with audit log entries that do not contain note text.
 - Job search and edit. Photo-only dashboard.
 - Delete forever from Recently Deleted (owners), and a company setting for how long Recently Deleted keeps photos (7 to 90 days, default 30) with an hourly automatic clean-up.
-- Real sign-in (Microsoft Entra External ID) on phone and website, plus adding people by email, withdrawing, suspending and removing them, with the phone wiping company data when access is removed. Built and tested here; not switched on. See `docs/AUTHENTICATION.md`.
+- Real sign-in (Microsoft Entra External ID) on phone and website, plus adding people by email, withdrawing, suspending and removing them, with the phone wiping company data when access is removed, and an owner setting for how often people must sign in again. Built and tested here; not switched on. See `docs/AUTHENTICATION.md`.
 - Team & roles: custom roles, editable Manager/Employee presets, choose each person's roles, with no-escalation and keep-an-owner rules enforced on the server and in the database. Website page "Team & roles" and the same on the phone (Settings > Team & Roles).
 - Receipts, vehicles, and member admin routes are switched off (`PHASE2_FEATURES=false` by default).
 
 ## Test results (2026-11-21: cloud dev environment, and again on JB's Windows PC with the same counts)
 
-- Server: 230 of 230 pass (includes the end-to-end acceptance test, team & roles, delete-forever / keep-time, 10 add/remove-people tests and 4 tests of the real token checker against a stand-in identity provider). Counts from this cloud dev environment on 2026-11-21; not yet re-run on JB's PC.
+- Server: 231 of 231 pass (includes the end-to-end acceptance test, team & roles, delete-forever / keep-time, 10 add/remove-people tests and 4 tests of the real token checker against a stand-in identity provider, and the "sign in again" owner setting). Counts from this cloud dev environment on 2026-11-21; not yet re-run on JB's PC.
 - Offline queue and sync: 21 of 21 pass.
 - Web: 8 of 8 pass.
 - iPhone app: type check passes and the iOS bundle builds. There are no automated tests of the iPhone screens themselves.

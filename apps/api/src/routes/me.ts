@@ -37,12 +37,14 @@ export async function meRoutes(app: FastifyInstance, { db }: RouteDeps): Promise
     const { orgId } = parse(OrgParams, req.params);
     return inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("org.read");
-      const { rows } = await tx.query<{ id: string; name: string; slug: string }>(
-        "SELECT id, name, slug FROM organizations WHERE id = $1",
+      const { rows } = await tx.query<{ id: string; name: string; slug: string; sign_in_every_days: number }>(
+        "SELECT id, name, slug, sign_in_every_days FROM organizations WHERE id = $1",
         [orgId],
       );
+      const { sign_in_every_days, ...organization } = rows[0]!;
       return {
-        organization: rows[0]!,
+        organization,
+        signInEveryDays: sign_in_every_days,
         membershipId: ctx.membershipId,
         roles: ctx.roles,
         permissions: [...ctx.permissions].sort(),

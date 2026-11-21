@@ -29,9 +29,14 @@ export interface Session {
   permissions: string[];
   /** "entra" = real Microsoft sign-in. Missing or "dev" = the development sign-in (test people only). */
   mode?: "dev" | "entra";
+  /** Real sign-in: when the person last signed in on Microsoft's page (ms since 1970). */
+  signedInAt?: number;
+  /** The company's rule: sign in again after this many days. */
+  signInEveryDays?: number;
 }
 
-type Who = { subject: string; displayName: string; mode: "dev" | "entra" };
+type Who = { subject: string; displayName: string; mode: "dev" | "entra"; signedInAt?: number };
+const DAY_MS = 24 * 3600_000;
 
 export interface Job {
   id: string;
@@ -178,6 +183,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const r = await entra.refresh();
         if ("entra:" + r.subject !== subject) throw new entra.SignInExpired("Please sign in again.");
+        // The company's "sign in again every N days" rule. Checked only here, right after Microsoft answered,
+        // so it never applies while offline: taking photos without signal is never interrupted.
+        const s = sessionRef.current;
+        if (s?.signedInAt && s.signInEveryDays && Date.now() - s.signedInAt > s.signInEveryDays * DAY_MS) {
+          await expireRef.current?.(`Your company asks everyone to sign in again every ${s.signInEveryDays === 1 ? "day" : `${s.signInEveryDays} days`}. Photos not yet sent are still on this phone.`);
+          return null;
+        }
         token.current = { value: r.accessToken, expiresAt: r.expiresAt, subject };
         return r.accessToken;
       } catch (e) {
@@ -201,7 +213,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [issueDevToken]);
 
   const revokeRef = useRef<(() => Promise<void>) | null>(null);
-  const expireRef = useRef<(() => Promise<void>) | null>(null);
+  const expireRef = useRef<((message?: string) => Promise<void>) | null>(null);
 
   if (!holder.current) {
     // Created synchronously so screens always have objects to use; the vault is opened in the effect below.
@@ -297,14 +309,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Real sign-in ran out (for example after a long time without opening the app). Unlike signing out or
   // being removed, the person's unsent photos stay encrypted on the phone and upload after they sign in again.
-  const expire = useCallback(async () => {
+  const expire = useCallback(async (message?: string) => {
     await entra.forget().catch(() => undefined);
     await SecureStore.deleteItemAsync(SESSION_KEY, OPTS);
     token.current = null;
     sessionRef.current = null;
     pendingSubject.current = null;
     setSession(null);
-    setNotice("Your sign-in has expired. Please sign in again. Photos not yet sent are still on this phone.");
+    setNotice(message ?? "Your sign-in has expired. Please sign in again. Photos not yet sent are still on this phone.");
   }, []);
   expireRef.current = expire;
 
@@ -351,7 +363,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           await entra.forget();
           throw new OwnerMismatchError(owner);
         }
-        pendingSubject.current = { subject, displayName: r.name ?? "Me", mode: "entra" };
+        pendingSubject.current = { subject, displayName: r.name ?? "Me", mode: "entra", signedInAt: Date.now() };
         token.current = { value: r.accessToken, expiresAt: r.expiresAt, subject };
         setNotice(null);
         try {
@@ -369,11 +381,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       },
       async chooseOrg(orgId: string, orgName: string) {
-        const p: Who | null = pendingSubject.current ?? (sessionRef.current ? { subject: sessionRef.current.subject, displayName: sessionRef.current.displayName, mode: sessionRef.current.mode ?? "dev" } : null);
+        const cur = sessionRef.current;
+        const p: Who | null =
+          pendingSubject.current ??
+          (cur ? { subject: cur.subject, displayName: cur.displayName, mode: cur.mode ?? "dev", ...(cur.signedInAt ? { signedInAt: cur.signedInAt } : {}) } : null);
         if (!p) throw new Error("Sign in first.");
-        const ctx = await holder.current!.api.get<{ permissions: string[] }>(`/v1/orgs/${orgId}`);
+        const ctx = await holder.current!.api.get<{ permissions: string[]; signInEveryDays?: number }>(`/v1/orgs/${orgId}`);
         await holder.current!.queue.claim({ subject: p.subject, displayName: p.displayName });
-        const s: Session = { subject: p.subject, displayName: p.displayName, orgId, orgName, permissions: ctx.permissions, mode: p.mode };
+        const s: Session = {
+          subject: p.subject,
+          displayName: p.displayName,
+          orgId,
+          orgName,
+          permissions: ctx.permissions,
+          mode: p.mode,
+          ...(p.signedInAt ? { signedInAt: p.signedInAt } : {}),
+          ...(ctx.signInEveryDays ? { signInEveryDays: ctx.signInEveryDays } : {}),
+        };
         await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(s), OPTS);
         sessionRef.current = s;
         pendingSubject.current = null;
@@ -386,10 +410,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const cur = sessionRef.current;
         if (!cur) return;
         try {
-          const ctx = await holder.current!.api.get<{ permissions: string[] }>(`/v1/orgs/${cur.orgId}`);
+          const ctx = await holder.current!.api.get<{ permissions: string[]; signInEveryDays?: number }>(`/v1/orgs/${cur.orgId}`);
           const next = [...ctx.permissions].sort();
-          if (JSON.stringify(next) === JSON.stringify([...cur.permissions].sort())) return;
-          const s: Session = { ...cur, permissions: next };
+          const every = ctx.signInEveryDays ?? cur.signInEveryDays;
+          if (JSON.stringify(next) === JSON.stringify([...cur.permissions].sort()) && every === cur.signInEveryDays) return;
+          const s: Session = { ...cur, permissions: next, ...(every ? { signInEveryDays: every } : {}) };
           await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(s), OPTS);
           sessionRef.current = s;
           setSession(s);

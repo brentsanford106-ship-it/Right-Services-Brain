@@ -12,6 +12,9 @@ let accessToken: string | null = null;
 let devSubject: string | null = null;
 /** Real sign-in: Microsoft's refresh token, used to get a new access token when it runs out. */
 let refreshToken: string | null = null;
+/** When the person signed in on Microsoft's page. A website sign-in is never renewed past a day. */
+let signedInAt = 0;
+const WEB_SIGN_IN_MAX_MS = 24 * 3600_000;
 /** A message for the sign-in page, e.g. "You haven't been added to a company yet." */
 let notice: string | null = null;
 const listeners = new Set<() => void>();
@@ -34,6 +37,7 @@ export const session = {
     accessToken = t.accessToken;
     devSubject = null;
     refreshToken = t.refreshToken;
+    signedInAt = Date.now();
     notice = null;
     listeners.forEach((l) => l());
   },
@@ -62,6 +66,7 @@ export class ApiRequestError extends Error {
 
 async function renewDevToken(): Promise<boolean> {
   if (refreshToken) {
+    if (Date.now() - signedInAt > WEB_SIGN_IN_MAX_MS) return false;
     try {
       const t = await refreshTokens(refreshToken);
       accessToken = t.accessToken;

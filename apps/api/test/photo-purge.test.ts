@@ -133,11 +133,11 @@ describe("Delete forever", () => {
 describe("how long Recently Deleted keeps photos", () => {
   it("everyone can read it; only owners (org.manage) can change it, to one of the offered values", async () => {
     const eli = await t.as("dev-eli-employee").get(`${A}/settings`);
-    expect(eli.body).toEqual({ deletedPhotoRetentionDays: 30, canEdit: false });
+    expect(eli.body).toEqual({ deletedPhotoRetentionDays: 30, signInEveryDays: 30, canEdit: false });
     expect((await t.as("dev-eli-employee").patch(`${A}/settings`, { deletedPhotoRetentionDays: 7 })).status).toBe(403);
     expect((await t.as("dev-morgan-manager").patch(`${A}/settings`, { deletedPhotoRetentionDays: 7 })).status).toBe(403);
     expect((await t.as("dev-avery-owner").patch(`${A}/settings`, { deletedPhotoRetentionDays: 45 })).status).toBe(400);
-    expect((await t.as("dev-avery-owner").patch(`${A}/settings`, { deletedPhotoRetentionDays: 7 })).body).toEqual({ deletedPhotoRetentionDays: 7, canEdit: true });
+    expect((await t.as("dev-avery-owner").patch(`${A}/settings`, { deletedPhotoRetentionDays: 7 })).body).toEqual({ deletedPhotoRetentionDays: 7, signInEveryDays: 30, canEdit: true });
     // Company B is unaffected.
     expect((await t.as("dev-riley-owner").get(`${B}/settings`)).body.deletedPhotoRetentionDays).toBe(30);
     expect((await t.as("dev-riley-owner").patch(`${A}/settings`, { deletedPhotoRetentionDays: 90 })).status).toBe(404);
@@ -189,5 +189,22 @@ describe("how long Recently Deleted keeps photos", () => {
     // Running again does nothing more.
     await purgeExpiredPhotos(t.db, t.storage, t.app.log);
     expect(await exists(newA)).toBe(true);
+  });
+});
+
+describe("how often people sign in again", () => {
+  it("defaults to 30 days, only owners can change it, only allowed values, and every member's app is told", async () => {
+    expect((await t.as("dev-eli-employee").get(A)).body.signInEveryDays).toBe(30);
+    expect((await t.as("dev-eli-employee").patch(`${A}/settings`, { signInEveryDays: 1 })).status).toBe(403);
+    expect((await t.as("dev-morgan-manager").patch(`${A}/settings`, { signInEveryDays: 1 })).status).toBe(403);
+    expect((await t.as("dev-avery-owner").patch(`${A}/settings`, { signInEveryDays: 3 })).status).toBe(400);
+    expect((await t.as("dev-avery-owner").patch(`${A}/settings`, {})).status).toBe(400);
+    const keep = (await t.as("dev-avery-owner").get(`${A}/settings`)).body.deletedPhotoRetentionDays;
+    const r = await t.as("dev-avery-owner").patch(`${A}/settings`, { signInEveryDays: 7 });
+    expect(r.body).toEqual({ deletedPhotoRetentionDays: keep, signInEveryDays: 7, canEdit: true });
+    expect((await t.as("dev-eli-employee").get(A)).body.signInEveryDays).toBe(7);
+    // Another company is unaffected.
+    expect((await t.as("dev-blake-employee").get(`/v1/orgs/${ORG_B}`)).body.signInEveryDays).toBe(30);
+    await t.as("dev-avery-owner").patch(`${A}/settings`, { signInEveryDays: 30 });
   });
 });

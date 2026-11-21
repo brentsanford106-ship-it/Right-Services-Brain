@@ -21,22 +21,23 @@ export default function Settings() {
   const unsent = counts.waiting + counts.needsAttention;
   const base = app.session ? `/v1/orgs/${app.session.orgId}` : "";
   const seesTeam = app.can("roles.manage") || app.can("members.read");
-  const [keep, setKeep] = useState<{ deletedPhotoRetentionDays: number; canEdit: boolean } | null>(null);
+  const [keep, setKeep] = useState<{ deletedPhotoRetentionDays: number; signInEveryDays: number; canEdit: boolean } | null>(null);
   const [team, setTeam] = useState<TeamMember[] | null>(null);
   const [saving, setSaving] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       if (!base) return;
-      app.api.get<{ deletedPhotoRetentionDays: number; canEdit: boolean }>(`${base}/settings`).then(setKeep, () => setKeep(null));
+      app.api.get<{ deletedPhotoRetentionDays: number; signInEveryDays: number; canEdit: boolean }>(`${base}/settings`).then(setKeep, () => setKeep(null));
       if (seesTeam) app.api.get<{ items: TeamMember[] }>(`${base}/team/members`).then((r) => setTeam(r.items), () => setTeam(null));
     }, [app.api, base, seesTeam]),
   );
 
-  const changeKeep = async (days: number) => {
+  const changeKeep = async (change: { deletedPhotoRetentionDays: number } | { signInEveryDays: number }) => {
     setSaving(true);
     try {
-      setKeep(await app.api.patch<{ deletedPhotoRetentionDays: number; canEdit: boolean }>(`${base}/settings`, { deletedPhotoRetentionDays: days }));
+      setKeep(await app.api.patch<{ deletedPhotoRetentionDays: number; signInEveryDays: number; canEdit: boolean }>(`${base}/settings`, change));
+      void app.refreshPermissions();
     } catch {
       Alert.alert("Not saved", "Check the connection and try again.");
     } finally {
@@ -98,7 +99,25 @@ export default function Settings() {
             {keep.canEdit ? (
               <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 8, opacity: saving ? 0.5 : 1 }}>
                 {[7, 14, 30, 60, 90].map((d) => (
-                  <Chip key={d} label={`${d} days`} active={keep.deletedPhotoRetentionDays === d} onPress={() => (saving ? undefined : void changeKeep(d))} />
+                  <Chip key={d} label={`${d} days`} active={keep.deletedPhotoRetentionDays === d} onPress={() => (saving ? undefined : void changeKeep({ deletedPhotoRetentionDays: d }))} />
+                ))}
+              </View>
+            ) : (
+              <Text style={[s.muted, { marginTop: 6 }]}>Only an owner can change this.</Text>
+            )}
+          </View>
+        ) : null}
+        {keep ? (
+          <View style={s.card}>
+            <Text style={s.label}>Sign In Again</Text>
+            <Text style={{ color: C.text }}>
+              Everyone signs in again every {keep.signInEveryDays === 1 ? "day" : `${keep.signInEveryDays} days`}. This is only checked when the phone has signal, so
+              taking photos without service is never interrupted, and photos not yet sent are always kept.
+            </Text>
+            {keep.canEdit ? (
+              <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 8, opacity: saving ? 0.5 : 1 }}>
+                {[1, 7, 14, 30, 60, 90].map((d) => (
+                  <Chip key={d} label={d === 1 ? "Every day" : `${d} days`} active={keep.signInEveryDays === d} onPress={() => (saving ? undefined : void changeKeep({ signInEveryDays: d }))} />
                 ))}
               </View>
             ) : (

@@ -421,8 +421,11 @@ export async function teamRoutes(app: FastifyInstance, { db, config }: RouteDeps
     const { orgId } = parse(OrgParams, req.params);
     return inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("org.read");
-      const { rows } = await tx.query<{ days: number }>("SELECT deleted_photo_retention_days AS days FROM organizations WHERE id = $1", [ctx.orgId]);
-      return { deletedPhotoRetentionDays: rows[0]!.days, canEdit: ctx.has("org.manage") };
+      const { rows } = await tx.query<{ days: number; sign_in: number }>(
+        "SELECT deleted_photo_retention_days AS days, sign_in_every_days AS sign_in FROM organizations WHERE id = $1",
+        [ctx.orgId],
+      );
+      return { deletedPhotoRetentionDays: rows[0]!.days, signInEveryDays: rows[0]!.sign_in, canEdit: ctx.has("org.manage") };
     });
   });
 
@@ -431,15 +434,22 @@ export async function teamRoutes(app: FastifyInstance, { db, config }: RouteDeps
     const body = parse(UpdateOrgSettingsRequest, req.body);
     return inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("org.manage");
-      const { rows: before } = await tx.query<{ days: number }>("SELECT deleted_photo_retention_days AS days FROM organizations WHERE id = $1", [ctx.orgId]);
-      const { rowCount } = await tx.query("UPDATE organizations SET deleted_photo_retention_days = $2 WHERE id = $1", [ctx.orgId, body.deletedPhotoRetentionDays]);
+      const { rows: before } = await tx.query<{ days: number; sign_in: number }>(
+        "SELECT deleted_photo_retention_days AS days, sign_in_every_days AS sign_in FROM organizations WHERE id = $1",
+        [ctx.orgId],
+      );
+      if (!before[0]) throw notFound();
+      const days = body.deletedPhotoRetentionDays ?? before[0].days;
+      const signIn = body.signInEveryDays ?? before[0].sign_in;
+      const { rowCount } = await tx.query("UPDATE organizations SET deleted_photo_retention_days = $2, sign_in_every_days = $3 WHERE id = $1", [ctx.orgId, days, signIn]);
       if (rowCount !== 1) throw notFound();
-      await recordAudit(tx, ctx, "org.settings_updated", "organization", ctx.orgId, {
-        setting: "deleted_photo_retention_days",
-        from: before[0]?.days ?? null,
-        to: body.deletedPhotoRetentionDays,
-      });
-      return { deletedPhotoRetentionDays: body.deletedPhotoRetentionDays, canEdit: true };
+      if (days !== before[0].days) {
+        await recordAudit(tx, ctx, "org.settings_updated", "organization", ctx.orgId, { setting: "deleted_photo_retention_days", from: before[0].days, to: days });
+      }
+      if (signIn !== before[0].sign_in) {
+        await recordAudit(tx, ctx, "org.settings_updated", "organization", ctx.orgId, { setting: "sign_in_every_days", from: before[0].sign_in, to: signIn });
+      }
+      return { deletedPhotoRetentionDays: days, signInEveryDays: signIn, canEdit: true };
     });
   });
 }
