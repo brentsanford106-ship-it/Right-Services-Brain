@@ -167,12 +167,14 @@ export default function JobGallery() {
         </Text>
         {note ? <Text style={[s.muted, { marginTop: 6 }]}>{note}</Text> : null}
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ padding: 12, paddingHorizontal: 16 }}>
+      {/* flexShrink 0: with many photos the list below used to squeeze this row and cut the labels off. */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ padding: 12, paddingHorizontal: 16 }}>
         {FILTERS.map((f) => (
           <Chip key={f.value} label={f.label} active={filter === f.value} tone={f.value === "flagged" ? "flag" : undefined} onPress={() => setFilter(f.value)} />
         ))}
       </ScrollView>
       <FlatList
+        style={{ flex: 1 }}
         key={cols}
         data={items}
         numColumns={cols}
