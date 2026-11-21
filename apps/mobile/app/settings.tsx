@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { Alert, ScrollView, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useApp, useQueueVersion } from "../src/state";
 import { Button, C, Chip, DevBanner, s } from "../src/ui";
@@ -107,21 +107,15 @@ export default function Settings() {
           </View>
         ) : null}
         {team ? (
-          <View style={s.card}>
-            <Text style={s.label}>Team</Text>
-            {team.filter((m) => m.status === "active").map((m) => (
-              <View key={m.membershipId} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.line }}>
-                <Text style={{ color: C.text, fontWeight: "600" }}>
-                  {m.displayName}
-                  {m.isYou ? " (you)" : ""}
-                </Text>
-                <Text style={s.muted}>{m.roles.map((r) => r.name).join(", ") || "No role"}</Text>
-              </View>
-            ))}
-            <Text style={[s.muted, { marginTop: 8 }]}>
-              {app.can("roles.manage") ? "To change roles or create new ones, use the website: Team & roles." : "Only owners can change roles."}
+          <Pressable onPress={() => router.push("/team")} style={({ pressed }) => [s.card, { opacity: pressed ? 0.7 : 1 }]}>
+            <Text style={s.label}>Team & Roles</Text>
+            <Text style={{ color: C.text, fontSize: 16, fontWeight: "600" }}>
+              {app.can("roles.manage") ? "Manage people's roles ›" : "See who has which role ›"}
             </Text>
-          </View>
+            <Text style={[s.muted, { marginTop: 4 }]}>
+              {team.filter((m) => m.status === "active").length} people · {app.can("roles.manage") ? "create roles, choose what each can do" : "only owners can change roles"}
+            </Text>
+          </Pressable>
         ) : null}
         <View style={s.card}>
           <Text style={s.label}>Server</Text>

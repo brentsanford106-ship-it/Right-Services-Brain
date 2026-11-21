@@ -46,7 +46,7 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 - Photo flag/unflag, notes, stage changes (PATCH), with audit log entries that do not contain note text.
 - Job search and edit. Photo-only dashboard.
 - Delete forever from Recently Deleted (owners), and a company setting for how long Recently Deleted keeps photos (7 to 90 days, default 30) with an hourly automatic clean-up.
-- Team & roles: custom roles, editable Manager/Employee presets, choose each person's roles, with no-escalation and keep-an-owner rules enforced on the server and in the database. Website page "Team & roles"; read-only team list on the phone (Settings).
+- Team & roles: custom roles, editable Manager/Employee presets, choose each person's roles, with no-escalation and keep-an-owner rules enforced on the server and in the database. Website page "Team & roles" and the same on the phone (Settings > Team & Roles).
 - Receipts, vehicles, and member admin routes are switched off (`PHASE2_FEATURES=false` by default).
 
 ## Test results (2026-11-21: cloud dev environment, and again on JB's Windows PC with the same counts)

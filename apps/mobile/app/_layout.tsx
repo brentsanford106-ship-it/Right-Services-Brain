@@ -65,6 +65,9 @@ export default function RootLayout() {
           <Stack.Screen name="photo/[key]" options={{ title: "Photo" }} />
           <Stack.Screen name="sync" options={{ title: "Uploads" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />
+          <Stack.Screen name="team/index" options={{ title: "Team & Roles" }} />
+          <Stack.Screen name="team/member/[id]" options={{ title: "Roles" }} />
+          <Stack.Screen name="team/role/[id]" options={{ title: "Role" }} />
         </Stack>
         </NavThemeProvider>
             </>

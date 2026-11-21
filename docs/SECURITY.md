@@ -63,7 +63,7 @@ This is a development build. **It is not secure for real data yet.** The items u
 
 ## Team & roles (added 2026-11-21)
 
-- Owners (or anyone given `roles.manage`) can create custom roles, edit the Manager and Employee presets, and choose each person's roles, on the website. The phone shows a read-only team list.
+- Owners (or anyone given `roles.manage`) can create custom roles, edit the Manager and Employee presets, and choose each person's roles, on the website or the phone (Settings > Team & Roles).
 - **No escalation:** to create, edit, delete or assign a role you must already hold every permission that role has, before and after the change. So someone with `roles.manage` but not owner can't touch the Owner role, an owner's roles, or create a role stronger than themselves. (A broader permission covers its narrow twin, e.g. "see all jobs" covers "see assigned jobs".)
 - **The Owner role is locked** by a database trigger: always every permission, can't be renamed or deleted. Built-in roles can't be deleted.
 - **A company always keeps an active owner:** a database trigger rejects any change that would leave none, so both co-owners can be owners, and one can step down only while another remains.
