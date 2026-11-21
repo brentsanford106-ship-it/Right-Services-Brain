@@ -10,6 +10,7 @@ import {
   PhotoParams,
   PhotoSearchQuery,
   ResolvePhotoFlagRequest,
+  UpdatePhotoRequest,
   type Photo,
 } from "@rsb/contracts";
 import { inOrg } from "../lib/context.js";
@@ -31,6 +32,8 @@ interface PhotoRow {
   site_name: string | null;
   stage: Photo["stage"];
   caption: string | null;
+  is_flagged: boolean;
+  flagged_at: Date | null;
   captured_at: Date;
   stored_at: Date | null;
   upload_status: Photo["uploadStatus"];
@@ -43,7 +46,7 @@ interface PhotoRow {
   has_preview: boolean;
 }
 
-const PHOTO_SELECT = `SELECT p.id, p.job_id, j.job_number, j.site_name, p.stage, p.caption, p.captured_at, p.stored_at, p.upload_status,
+const PHOTO_SELECT = `SELECT p.id, p.job_id, j.job_number, j.site_name, p.stage, p.caption, p.is_flagged, p.flagged_at, p.captured_at, p.stored_at, p.upload_status,
                              u.display_name AS uploaded_by, p.latitude, p.longitude, p.width_px, p.height_px,
                              (p.preview_storage_key IS NOT NULL) AS has_preview,
                              (SELECT count(*)::int FROM photo_flags f WHERE f.organization_id = p.organization_id AND f.photo_id = p.id AND f.status = 'open') AS open_flags
@@ -58,7 +61,9 @@ const toPhoto = (r: PhotoRow): Photo => ({
   jobNumber: r.job_number,
   siteName: r.site_name,
   stage: r.stage,
-  caption: r.caption,
+  note: r.caption,
+  flagged: r.is_flagged,
+  flaggedAt: r.flagged_at?.toISOString() ?? null,
   capturedAt: r.captured_at.toISOString(),
   storedAt: r.stored_at?.toISOString() ?? null,
   uploadStatus: r.upload_status,
@@ -121,6 +126,7 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
       if (q.jobNumber) add("j.job_number = ?", q.jobNumber);
       if (q.site) add("(j.site_name ILIKE ? OR j.site_address ILIKE ?)", `%${q.site.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
       if (q.stage) add("p.stage = ?", q.stage);
+      if (q.flagged !== undefined) add("p.is_flagged = ?", q.flagged);
       if (q.from) add("p.captured_at >= ?::date", q.from);
       if (q.to) add("p.captured_at < (?::date + 1)", q.to);
       let distanceSql = "NULL::double precision";
@@ -157,11 +163,12 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
       const { id, created } = await insertIdempotent(
         tx, "photos", body.clientRef, ctx.membershipId,
         `INSERT INTO photos (organization_id, job_id, content_type, stage, caption, captured_at, uploaded_by_membership_id,
-                             client_ref, latitude, longitude, location_accuracy_m)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                             client_ref, latitude, longitude, location_accuracy_m, is_flagged, flagged_at, flagged_by_membership_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::boolean,
+                 CASE WHEN $12::boolean THEN now() END, CASE WHEN $12::boolean THEN $7::uuid END)
          ON CONFLICT (organization_id, client_ref) DO NOTHING RETURNING id`,
-        [ctx.orgId, jobId, body.contentType, body.stage, body.caption ?? null, body.capturedAt, ctx.membershipId,
-         body.clientRef, body.latitude ?? null, body.longitude ?? null, body.locationAccuracyM ?? null],
+        [ctx.orgId, jobId, body.contentType, body.stage, body.note ?? null, body.capturedAt, ctx.membershipId,
+         body.clientRef, body.latitude ?? null, body.longitude ?? null, body.locationAccuracyM ?? null, body.flagged],
       );
       if (created) await recordAudit(tx, ctx, "photo.recorded", "photo", id, { jobId, hasLocation: body.latitude !== undefined });
       const { rows } = await tx.query<PhotoRow>(`${PHOTO_SELECT} WHERE p.id = $1`, [id]);
@@ -240,7 +247,35 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
       .send(data);
   });
 
-  // ------------------------------------------------------------ flags
+  // ------------------------------------------------------------ flag / note / category
+  app.patch("/v1/orgs/:orgId/photos/:photoId", async (req) => {
+    const { orgId, photoId } = parse(PhotoParams, req.params);
+    const body = parse(UpdatePhotoRequest, req.body);
+    return inOrg(db, req, orgId, async (tx, ctx) => {
+      const p = await loadVisiblePhoto(tx, ctx, photoId);
+      // The photographer may edit their own photos; managers (photo_flags.manage) may edit any photo they can see.
+      const own = p.uploaded_by_membership_id === ctx.membershipId && ctx.has("photos.upload");
+      if (!own && !ctx.has("photo_flags.manage")) throw new HttpError("forbidden");
+      // Fixed SQL with COALESCE: a field left out of the request keeps its current value.
+      await tx.query(
+        `UPDATE photos SET
+           is_flagged = COALESCE($2::boolean, is_flagged),
+           flagged_at = CASE WHEN $2::boolean IS NULL THEN flagged_at WHEN $2::boolean THEN COALESCE(flagged_at, now()) END,
+           flagged_by_membership_id = CASE WHEN $2::boolean IS NULL THEN flagged_by_membership_id
+                                           WHEN $2::boolean THEN COALESCE(flagged_by_membership_id, $3::uuid) END,
+           caption = CASE WHEN $4::boolean THEN NULLIF($5::text, '') ELSE caption END,
+           stage = COALESCE($6::text, stage)
+         WHERE id = $1`,
+        [photoId, body.flagged ?? null, ctx.membershipId, body.note !== undefined, body.note ?? null, body.stage ?? null],
+      );
+      const action = body.flagged === true ? "photo.flagged" : body.flagged === false ? "photo.unflagged" : "photo.updated";
+      await recordAudit(tx, ctx, action, "photo", photoId, { fields: Object.keys(body) });
+      const { rows } = await tx.query<PhotoRow>(`${PHOTO_SELECT} WHERE p.id = $1`, [photoId]);
+      return toPhoto(rows[0]!);
+    });
+  });
+
+  // ------------------------------------------------------------ review flags (manager review queue; UI deferred)
   app.post("/v1/orgs/:orgId/photos/:photoId/flags", async (req, reply) => {
     const { orgId, photoId } = parse(PhotoParams, req.params);
     const body = parse(CreatePhotoFlagRequest, req.body);

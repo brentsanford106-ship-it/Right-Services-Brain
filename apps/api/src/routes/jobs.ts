@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { CreateAssignmentRequest, CreateJobRequest, JobParams, OrgParams, PageQuery, type Job } from "@rsb/contracts";
+import { CreateAssignmentRequest, CreateJobRequest, JobListQuery, JobParams, OrgParams, UpdateJobRequest, type Job } from "@rsb/contracts";
 import { inOrg } from "../lib/context.js";
 import { parse } from "../lib/validate.js";
 import { assertJobAccess, jobVisibilitySql } from "../lib/access.js";
@@ -42,12 +42,16 @@ function toJob(r: JobRow, includeCustomer: boolean): Job {
 export async function jobRoutes(app: FastifyInstance, { db }: RouteDeps): Promise<void> {
   app.get("/v1/orgs/:orgId/jobs", async (req) => {
     const { orgId } = parse(OrgParams, req.params);
-    const { limit } = parse(PageQuery, req.query);
+    const { limit, q } = parse(JobListQuery, req.query);
     return inOrg(db, req, orgId, async (tx, ctx) => {
       const vis = jobVisibilitySql(ctx);
+      // Search by job number, job name, or site name. LIKE wildcards in the input are escaped.
+      const pattern = q ? `%${q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
       const { rows } = await tx.query<JobRow>(
-        `${JOB_SELECT} WHERE j.deleted_at IS NULL AND (${vis.where}) ORDER BY j.job_number LIMIT $2`,
-        [ctx.membershipId, limit],
+        `${JOB_SELECT} WHERE j.deleted_at IS NULL AND (${vis.where})
+           AND ($3::text IS NULL OR lower(j.job_number) LIKE $3 OR lower(j.title) LIKE $3 OR lower(coalesce(j.site_name, '')) LIKE $3)
+         ORDER BY j.job_number LIMIT $2`,
+        [ctx.membershipId, limit, pattern],
       );
       return { items: rows.map((r) => toJob(r, ctx.has("customers.read"))) };
     });
@@ -97,6 +101,28 @@ export async function jobRoutes(app: FastifyInstance, { db }: RouteDeps): Promis
       return toJob(created[0]!, ctx.has("customers.read"));
     });
     return reply.status(201).send(job);
+  });
+
+  app.patch("/v1/orgs/:orgId/jobs/:jobId", async (req) => {
+    const { orgId, jobId } = parse(JobParams, req.params);
+    const body = parse(UpdateJobRequest, req.body);
+    return inOrg(db, req, orgId, async (tx, ctx) => {
+      ctx.require("jobs.manage");
+      await assertJobAccess(tx, ctx, jobId);
+      await tx.query(
+        `UPDATE jobs SET
+            title = COALESCE($2, title),
+            site_name = CASE WHEN $3::boolean THEN NULLIF($4::text, '') ELSE site_name END,
+            site_address = CASE WHEN $5::boolean THEN NULLIF($6::text, '') ELSE site_address END,
+            status = COALESCE($7, status)
+          WHERE id = $1`,
+        [jobId, body.title ?? null, body.siteName !== undefined, body.siteName ?? null,
+         body.siteAddress !== undefined, body.siteAddress ?? null, body.status ?? null],
+      );
+      await recordAudit(tx, ctx, "job.updated", "job", jobId, { fields: Object.keys(body).sort() });
+      const { rows } = await tx.query<JobRow>(`${JOB_SELECT} WHERE j.id = $1`, [jobId]);
+      return toJob(rows[0]!, ctx.has("customers.read"));
+    });
   });
 
   app.post("/v1/orgs/:orgId/jobs/:jobId/assignments", async (req, reply) => {

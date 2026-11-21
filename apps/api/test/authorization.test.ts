@@ -41,9 +41,10 @@ describe("employee", () => {
     expect(r.body.items.every((x: { submittedBy: string }) => x.submittedBy === "Eli Employee")).toBe(true);
   });
 
-  it("cannot see financial totals, members, flags queue, or audit log", async () => {
+  it("gets a photo-only dashboard with no financial fields, and cannot see members, flags queue, or audit log", async () => {
     const d = await eli().get(`${base}/dashboard`);
-    expect(d.body.receiptsTotalCents).toBeNull();
+    expect(d.status).toBe(200);
+    expect(Object.keys(d.body).sort()).toEqual(["activeJobs", "flaggedPhotos", "photosAwaitingUpload", "photosLast7Days"]);
     expect((await eli().get(`${base}/members`)).status).toBe(403);
     expect((await eli().get(`${base}/photo-flags`)).status).toBe(403);
     expect((await eli().get(`${base}/audit-events`)).status).toBe(403);
@@ -110,8 +111,7 @@ describe("manager", () => {
     expect(again.status).toBe(409);
   });
 
-  it("does not see financial totals or other people's receipts", async () => {
-    expect((await morgan().get(`${base}/dashboard`)).body.receiptsTotalCents).toBeNull();
+  it("does not see other people's receipts", async () => {
     expect((await morgan().get(`${base}/receipts`)).body.scope).toBe("own");
   });
 
@@ -123,9 +123,10 @@ describe("manager", () => {
 describe("owner", () => {
   const avery = () => t.as("dev-avery-owner");
 
-  it("sees financial totals and all receipts", async () => {
+  it("sees photo dashboard counts and all receipts", async () => {
     const d = await avery().get(`${base}/dashboard`);
-    expect(typeof d.body.receiptsTotalCents).toBe("number");
+    expect(typeof d.body.flaggedPhotos).toBe("number");
+    expect(d.body).not.toHaveProperty("receiptsTotalCents");
     expect((await avery().get(`${base}/receipts`)).body.scope).toBe("all");
   });
 

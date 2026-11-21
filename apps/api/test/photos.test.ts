@@ -38,7 +38,7 @@ async function record(subject: string, jobId: string, extra: Record<string, unkn
 describe("the photo milestone flow", () => {
   it("employee records a photo offline-first, uploads later, and a manager sees it under the right job", async () => {
     // 1. Phone queued the photo while offline; on reconnect it sends the record...
-    const rec = await record("dev-eli-employee", hp1001, { caption: "Pump island before work (synthetic)" });
+    const rec = await record("dev-eli-employee", hp1001, { note: "Pump island before work (synthetic)" });
     expect(rec.status).toBe(201);
     expect(rec.body.uploadStatus).toBe("pending");
     expect(rec.body.jobNumber).toBe("HP-1001");
@@ -226,7 +226,8 @@ describe("invalid metadata and files", () => {
     [{ capturedAt: "2099-01-01T00:00:00Z" }, "future timestamp"],
     [{ stage: "selfie" }, "unknown stage"],
     [{ contentType: "image/gif" }, "unsupported type"],
-    [{ caption: "x".repeat(501) }, "caption too long"],
+    [{ note: "x".repeat(2001) }, "note too long"],
+    [{ caption: "old field" }, "unknown field"],
     [{ organizationId: ORG_B }, "smuggled organization"],
     [{ uploadedBy: "someone-else" }, "smuggled uploader"],
   ])("rejects %j (%s)", async (extra) => {

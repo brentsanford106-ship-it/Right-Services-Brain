@@ -16,6 +16,8 @@ const EnvSchema = z.object({
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(300),
   STORAGE_DRIVER: z.enum(["local", "azure_blob"]).default("local"),
   LOCAL_STORAGE_DIR: z.string().default(".data/object-store"),
+  /** Receipts, vehicles, mileage and member admin are Phase 2. Off unless explicitly enabled. */
+  PHASE2_FEATURES: Bool.default(false),
 });
 
 export interface AppConfig {
@@ -29,6 +31,7 @@ export interface AppConfig {
   oidc: { issuer: string; audience: string; jwksUri: string } | null;
   rateLimitPerMinute: number;
   storage: { driver: "local"; dir: string } | { driver: "azure_blob" };
+  phase2Features: boolean;
 }
 
 export class ConfigError extends Error {}
@@ -83,5 +86,6 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     oidc,
     rateLimitPerMinute: e.RATE_LIMIT_PER_MINUTE,
     storage: e.STORAGE_DRIVER === "local" ? { driver: "local", dir: e.LOCAL_STORAGE_DIR } : { driver: "azure_blob" },
+    phase2Features: e.PHASE2_FEATURES,
   };
 }

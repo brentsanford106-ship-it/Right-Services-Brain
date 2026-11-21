@@ -93,17 +93,47 @@ export const CreateJobRequest = z.strictObject({
 });
 export type CreateJobRequest = z.infer<typeof CreateJobRequest>;
 
+export const UpdateJobRequest = z
+  .strictObject({
+    title: Text(200).optional(),
+    siteName: z.string().trim().max(200).nullable().optional(),
+    siteAddress: z.string().trim().max(500).nullable().optional(),
+    status: JobStatus.optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "nothing to update" });
+export type UpdateJobRequest = z.infer<typeof UpdateJobRequest>;
+
+export const JobListQuery = z.strictObject({
+  /** Matches job number, job name, or site name. */
+  q: z.string().trim().min(1).max(100).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+});
+
 export const CreateAssignmentRequest = z.strictObject({ membershipId: Uuid });
 
 // ---------------------------------------------------------------- photos
 export const PhotoStage = z.enum(["before", "during", "after", "issue", "other"]);
+/** Categories offered when taking photos. ("issue"/"other" exist only for older records.) */
+export const CaptureStage = z.enum(["before", "during", "after"]);
+
+/** Flag/unflag, edit note, or recategorise a photo. Works for queued offline edits too. */
+export const UpdatePhotoRequest = z
+  .strictObject({
+    flagged: z.boolean().optional(),
+    note: z.string().trim().max(2000).nullable().optional(),
+    stage: CaptureStage.optional(),
+  })
+  .refine((v) => v.flagged !== undefined || v.note !== undefined || v.stage !== undefined, { message: "nothing to update" });
+export type UpdatePhotoRequest = z.infer<typeof UpdatePhotoRequest>;
 export const Photo = z.object({
   id: Uuid,
   jobId: Uuid,
   jobNumber: z.string(),
   siteName: z.string().nullable(),
   stage: PhotoStage,
-  caption: z.string().nullable(),
+  note: z.string().nullable(),
+  flagged: z.boolean(),
+  flaggedAt: z.string().nullable(),
   capturedAt: z.string(),
   uploadStatus: z.enum(["pending", "stored", "rejected"]),
   uploadedBy: z.string(),
@@ -125,8 +155,9 @@ export type Photo = z.infer<typeof Photo>;
 export const CreatePhotoRequest = z
   .strictObject({
     clientRef: Uuid,
-    stage: PhotoStage,
-    caption: OptionalText(500),
+    stage: CaptureStage,
+    note: OptionalText(2000),
+    flagged: z.boolean().default(false),
     capturedAt: z.iso.datetime({ offset: true }),
     contentType: z.enum(["image/jpeg", "image/png", "image/heic"]),
     latitude: z.number().min(-90).max(90).optional(),
@@ -159,6 +190,7 @@ export const PhotoSearchQuery = z
     lng: z.coerce.number().min(-180).max(180).optional(),
     radiusM: z.coerce.number().min(10).max(50_000).default(500),
     stage: PhotoStage.optional(),
+    flagged: z.enum(["true", "false"]).transform((v) => v === "true").optional(),
     limit: z.coerce.number().int().min(1).max(200).default(100),
   })
   .refine((v) => (v.lat === undefined) === (v.lng === undefined), { path: ["lng"], message: "lat and lng must be sent together" })
@@ -243,10 +275,10 @@ export type Member = z.infer<typeof Member>;
 // ---------------------------------------------------------------- dashboard
 export const DashboardResponse = z.object({
   activeJobs: z.number().int(),
-  openPhotoFlags: z.number().int().nullable(),
-  openMaintenanceIssues: z.number().int().nullable(),
-  /** null when the caller lacks financials.read */
-  receiptsTotalCents: z.number().int().nullable(),
+  photosLast7Days: z.number().int(),
+  flaggedPhotos: z.number().int(),
+  /** Photo records whose file hasn't arrived yet (still on someone's phone). */
+  photosAwaitingUpload: z.number().int(),
 });
 export type DashboardResponse = z.infer<typeof DashboardResponse>;
 

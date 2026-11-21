@@ -54,21 +54,17 @@ export async function meRoutes(app: FastifyInstance, { db }: RouteDeps): Promise
         `SELECT count(*)::int AS n FROM jobs j WHERE j.status = 'active' AND j.deleted_at IS NULL AND (${vis.where})`,
         [ctx.membershipId],
       );
-      const flags = ctx.has("photo_flags.manage")
-        ? (await tx.query<{ n: number }>("SELECT count(*)::int AS n FROM photo_flags WHERE status = 'open'")).rows[0]!.n
-        : null;
-      const maint = ctx.has("maintenance.manage")
-        ? (await tx.query<{ n: number }>(
-            "SELECT count(*)::int AS n FROM maintenance_records WHERE status <> 'done' AND kind = 'issue' AND deleted_at IS NULL",
-          )).rows[0]!.n
-        : null;
-      // Financial totals: computed in trusted SQL, only for members with financials.read.
-      const total = ctx.has("financials.read")
-        ? (await tx.query<{ n: number }>(
-            "SELECT COALESCE(sum(amount_cents), 0)::bigint AS n FROM receipts WHERE deleted_at IS NULL AND status <> 'rejected'",
-          )).rows[0]!.n
-        : null;
-      return { activeJobs: jobs[0]!.n, openPhotoFlags: flags, openMaintenanceIssues: maint, receiptsTotalCents: total };
+      // Photo counts are limited to jobs this member can see (RLS already limits to this organization).
+      const { rows: p } = await tx.query<{ recent: number; flagged: number; awaiting: number }>(
+        `SELECT count(*) FILTER (WHERE p.captured_at >= now() - interval '7 days')::int AS recent,
+                count(*) FILTER (WHERE p.is_flagged)::int AS flagged,
+                count(*) FILTER (WHERE p.stored_at IS NULL)::int AS awaiting
+           FROM photos p JOIN jobs j ON j.organization_id = p.organization_id AND j.id = p.job_id
+          WHERE p.deleted_at IS NULL AND j.deleted_at IS NULL AND (${vis.where})`,
+        [ctx.membershipId],
+      );
+      const r = p[0]!;
+      return { activeJobs: jobs[0]!.n, photosLast7Days: r.recent, flaggedPhotos: r.flagged, photosAwaitingUpload: r.awaiting };
     });
   });
 }

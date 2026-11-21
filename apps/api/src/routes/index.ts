@@ -24,9 +24,12 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps): Pro
   await app.register(async (s) => meRoutes(s, deps));
   await app.register(async (s) => jobRoutes(s, deps));
   await app.register(async (s) => photoRoutes(s, deps));
-  await app.register(async (s) => receiptRoutes(s, deps));
-  await app.register(async (s) => vehicleRoutes(s, deps));
-  await app.register(async (s) => memberRoutes(s, deps));
+  // Phase 2 modules stay switched off in Phase 1 (they return 404) so nothing outside the photo scope is exposed.
+  if (deps.config.phase2Features) {
+    await app.register(async (s) => receiptRoutes(s, deps));
+    await app.register(async (s) => vehicleRoutes(s, deps));
+    await app.register(async (s) => memberRoutes(s, deps));
+  }
   // Development-only login. Registered ONLY when dev auth is enabled (never in staging/production).
   if (deps.devAuth) await app.register(async (s) => devAuthRoutes(s, deps.devAuth!, deps.db));
 }
