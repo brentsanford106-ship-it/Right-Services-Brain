@@ -4,22 +4,28 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AppProvider } from "../src/state";
 import { C } from "../src/ui";
+import { ThemeProvider } from "../src/theme";
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AppProvider>
-        <StatusBar style="auto" />
+        <ThemeProvider>
+          {(scheme) => (
+            <>
+        <StatusBar style={scheme === "dark" ? "light" : "dark"} />
         {/*
           iOS 26 draws see-through ("glass") headers by default, and screen content then slides
           underneath them. A solid header makes the system push every screen's content below it.
         */}
+        {/* Re-created when the theme changes so every screen picks up the new colours. */}
         <Stack
+          key={scheme}
           screenOptions={{
             headerBackTitle: "Back",
             headerTransparent: false,
             headerStyle: { backgroundColor: C.card },
-            headerTintColor: C.brand,
+            headerTintColor: C.link,
             headerTitleStyle: { color: C.ink },
             contentStyle: { backgroundColor: C.bg },
           }}
@@ -35,6 +41,9 @@ export default function RootLayout() {
           <Stack.Screen name="sync" options={{ title: "Uploads" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />
         </Stack>
+            </>
+          )}
+        </ThemeProvider>
       </AppProvider>
     </SafeAreaProvider>
   );

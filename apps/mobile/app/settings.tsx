@@ -2,10 +2,12 @@ import React from "react";
 import { Alert, ScrollView, Text, View } from "react-native";
 import { router } from "expo-router";
 import { useApp, useQueueVersion } from "../src/state";
-import { Button, C, DevBanner, s } from "../src/ui";
+import { Button, C, Chip, DevBanner, s } from "../src/ui";
+import { useTheme, type ThemePref } from "../src/theme";
 
 export default function Settings() {
   const app = useApp();
+  const theme = useTheme();
   useQueueVersion();
   const counts = app.queue.counts();
   const unsent = counts.waiting + counts.needsAttention;
@@ -40,6 +42,20 @@ export default function Settings() {
           <Text style={s.label}>Signed in as</Text>
           <Text style={{ fontSize: 17, fontWeight: "700", color: C.text }}>{app.session?.displayName}</Text>
           <Text style={s.muted}>{app.session?.orgName}</Text>
+        </View>
+        <View style={s.card}>
+          <Text style={s.label}>Appearance</Text>
+          <View style={{ flexDirection: "row" }}>
+            {(
+              [
+                { value: "system", label: "Match iPhone" },
+                { value: "light", label: "Light" },
+                { value: "dark", label: "Dark" },
+              ] as { value: ThemePref; label: string }[]
+            ).map((o) => (
+              <Chip key={o.value} label={o.label} active={theme.pref === o.value} onPress={() => theme.setPref(o.value)} />
+            ))}
+          </View>
         </View>
         <View style={s.card}>
           <Text style={s.label}>Server</Text>

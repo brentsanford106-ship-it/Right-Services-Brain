@@ -70,7 +70,7 @@ export default function Jobs() {
           title: "Jobs",
           headerRight: () => (
             <Pressable onPress={() => router.push("/settings")} hitSlop={12}>
-              <Text style={{ color: C.brand, fontSize: 16 }}>Settings</Text>
+              <Text style={{ color: C.link, fontSize: 16 }}>Settings</Text>
             </Pressable>
           ),
         }}

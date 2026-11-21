@@ -136,16 +136,16 @@ export default function JobGallery() {
             <View style={{ flexDirection: "row", gap: 18, alignItems: "center" }}>
               {selecting ? (
                 <Pressable hitSlop={12} onPress={() => setSelected(allShownSelected ? new Set() : new Set(items.map((i) => i.key)))}>
-                  <Text style={{ color: C.brand, fontSize: 16 }}>{allShownSelected ? "Deselect All" : "Select All"}</Text>
+                  <Text style={{ color: C.link, fontSize: 16 }}>{allShownSelected ? "Deselect All" : "Select All"}</Text>
                 </Pressable>
               ) : app.can("jobs.manage") ? (
                 <Pressable hitSlop={12} onPress={() => router.push({ pathname: "/jobs/edit", params: { jobId } })}>
-                  <Text style={{ color: C.brand, fontSize: 16 }}>Edit job</Text>
+                  <Text style={{ color: C.link, fontSize: 16 }}>Edit job</Text>
                 </Pressable>
               ) : null}
               {all.length ? (
                 <Pressable hitSlop={12} onPress={() => (selecting ? stopSelecting() : startSelecting())}>
-                  <Text style={{ color: C.brand, fontSize: 16, fontWeight: selecting ? "700" : "400" }}>{selecting ? "Cancel" : "Select"}</Text>
+                  <Text style={{ color: C.link, fontSize: 16, fontWeight: selecting ? "700" : "400" }}>{selecting ? "Cancel" : "Select"}</Text>
                 </Pressable>
               ) : null}
             </View>

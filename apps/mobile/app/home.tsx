@@ -81,7 +81,7 @@ export default function Home() {
           title: "Home",
           headerRight: () => (
             <Pressable onPress={() => router.push("/settings")} hitSlop={12}>
-              <Text style={{ color: C.brand, fontSize: 16 }}>Settings</Text>
+              <Text style={{ color: C.link, fontSize: 16 }}>Settings</Text>
             </Pressable>
           ),
         }}
@@ -136,7 +136,7 @@ export default function Home() {
               </Pressable>
             ))}
             <Pressable onPress={() => router.push("/jobs")} hitSlop={8}>
-              <Text style={{ color: C.brand, fontWeight: "600", fontSize: 16 }}>See all jobs ›</Text>
+              <Text style={{ color: C.link, fontWeight: "600", fontSize: 16 }}>See all jobs ›</Text>
             </Pressable>
           </View>
         ) : null}
