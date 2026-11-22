@@ -24,7 +24,7 @@ Nobody is in a new company yet, so nobody can add the first owners from the app.
 pnpm db:setup-company --name "Right Services" --owner "nate@example.com:Nate" --owner "jb@example.com:JB"
 ```
 
-It creates the company with the Owner, Manager and Employee roles and adds each email as an Owner (shown as "added by Company setup"). Each owner gets in by signing in with Microsoft using that email. Running it again doesn't duplicate anything. It needs the database admin connection, so only someone with the admin password can run it. Tested in `apps/api/test/setup-company.test.ts`.
+It creates the company with the Owner, Manager and Employee roles and adds each email as an Owner (shown as "added by Company setup"). Each owner gets in by signing in with Microsoft using that email. If a company with a matching name already exists, it stops and changes nothing, so a new customer's owners can never end up inside another company. To add more owners to an existing company on purpose, add `--add-to-existing` (running that again doesn't duplicate anything). It needs the database admin connection, so only someone with the admin password can run it. Tested in `apps/api/test/setup-company.test.ts`.
 
 ## Technical summary
 

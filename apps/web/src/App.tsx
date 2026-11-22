@@ -1,4 +1,5 @@
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { session } from "./lib/api";
 import { Layout } from "./components/Layout";
@@ -17,6 +18,14 @@ function useSignedIn() {
 
 export function App() {
   const signedIn = useSignedIn();
+  const queryClient = useQueryClient();
+  // Company walls on a shared computer: when someone signs out, forget every company's data this page loaded,
+  // so the next person to sign in on this browser can never be shown it from memory (for example with Back).
+  const wasSignedIn = useRef(signedIn);
+  useEffect(() => {
+    if (wasSignedIn.current && !signedIn) queryClient.clear();
+    wasSignedIn.current = signedIn;
+  }, [signedIn, queryClient]);
   if (!signedIn) return <DevLoginPage />;
   return (
     <Routes>

@@ -96,12 +96,20 @@ export async function ensureAppLogin(client: pg.ClientBase, user: string, passwo
   const { rows } = await client.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [user]);
   // Role names cannot be bound as parameters; the identifier is validated above
   // and the password is escaped as a literal by the server-side format().
-  const verb = rows.length === 0 ? "CREATE" : "ALTER";
-  const { rows: stmt } = await client.query<{ sql: string }>(
-    `SELECT format('${verb} ROLE %I WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD %L', $1::text, $2::text) AS sql`,
-    [user, password],
-  );
+  // ALTER leaves out NOSUPERUSER/NOBYPASSRLS: a non-superuser admin (Azure) may not even mention those attributes,
+  // so re-running migrations on every deploy failed with "permission denied to alter role". They are checked instead.
+  const sql = rows.length === 0
+    ? "format('CREATE ROLE %I WITH LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS PASSWORD %L', $1::text, $2::text)"
+    : "format('ALTER ROLE %I WITH LOGIN INHERIT NOCREATEDB NOCREATEROLE PASSWORD %L', $1::text, $2::text)";
+  const { rows: stmt } = await client.query<{ sql: string }>(`SELECT ${sql} AS sql`, [user, password]);
   await client.query(stmt[0]!.sql);
+  const { rows: attrs } = await client.query<{ rolsuper: boolean; rolbypassrls: boolean }>(
+    "SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = $1",
+    [user],
+  );
+  if (attrs[0]?.rolsuper || attrs[0]?.rolbypassrls) {
+    throw new Error(`The app login ${user} is a superuser or can bypass row-level security. Remove that before continuing.`);
+  }
   const { rows: grant } = await client.query<{ sql: string }>("SELECT format('GRANT rsb_app TO %I', $1::text) AS sql", [user]);
   await client.query(grant[0]!.sql);
 }

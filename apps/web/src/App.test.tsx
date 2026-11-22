@@ -17,6 +17,17 @@ function renderApp(path = "/") {
 afterEach(() => { cleanup(); session.set(null); vi.unstubAllGlobals(); });
 
 describe("web dashboard", () => {
+  it("company walls: signing out forgets all loaded company data (shared computers)", async () => {
+    session.set("x.y.z");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ warning: "dev", items: [] }), { status: 200 })));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(["company-a", "jobs"], { items: [{ jobNumber: "SECRET-1" }] });
+    render(<QueryClientProvider client={qc}><MemoryRouter><App /></MemoryRouter></QueryClientProvider>);
+    expect(qc.getQueryData(["company-a", "jobs"])).toBeTruthy();
+    session.set(null);
+    await waitFor(() => expect(qc.getQueryCache().getAll().filter((q) => q.queryKey[0] === "company-a")).toEqual([]));
+  });
+
   it("shows the development sign-in with a clear warning when signed out", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ warning: "dev", items: [{ subject: "dev-a", displayName: "Avery Owner", description: "Owner" }] }), { status: 200 })));
     renderApp();

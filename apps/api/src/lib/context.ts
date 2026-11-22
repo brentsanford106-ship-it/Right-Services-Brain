@@ -1,6 +1,6 @@
 import type { FastifyRequest } from "fastify";
 import type { Permission } from "@rsb/contracts";
-import type { Database, Tx } from "./db.js";
+import { NotAMemberError, type Database, type Tx } from "./db.js";
 import { HttpError, notFound, unauthenticated } from "./errors.js";
 import { recordAudit, recordSecurityEvent } from "./audit.js";
 
@@ -87,7 +87,7 @@ export async function inOrg<T>(
       return fn(tx, ctx);
     });
   } catch (err) {
-    if (err instanceof NoMembership) {
+    if (err instanceof NoMembership || err instanceof NotAMemberError) {
       await recordSecurityEvent(db, {
         actorUserId: userId,
         action: "authz.org_access_denied",

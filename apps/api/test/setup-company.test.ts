@@ -50,8 +50,8 @@ describe("setting up a real company", () => {
       expect(r.created).toBe(true);
       expect(r.invited).toEqual(["owner.one@example.com", "owner.two@example.com"]);
       orgId = r.orgId;
-      // Running it again changes nothing.
-      const again = await setupCompany(admin, "Test Setup Co", [{ email: "owner.one@example.com", displayName: "Owner One" }]);
+      // Running it again on purpose (--add-to-existing) changes nothing.
+      const again = await setupCompany(admin, "Test Setup Co", [{ email: "owner.one@example.com", displayName: "Owner One" }], { addToExisting: true });
       expect(again).toEqual({ orgId, created: false, invited: [] });
     } finally {
       await admin.end();
@@ -67,5 +67,21 @@ describe("setting up a real company", () => {
     expect(JSON.parse(inv.body).items).toMatchObject([{ email: "owner.two@example.com", invitedBy: "Company setup", roles: [{ name: "Organization Owner" }] }]);
     // ...and can't see the demo company.
     expect((await t.app.inject({ method: "GET", url: `/v1/orgs/${ORG_A}`, headers: { authorization: `Bearer ${one}` } })).statusCode).toBe(404);
+  });
+
+  it("company walls: a second company with a matching name is refused, never merged into the first", async () => {
+    const admin = await adminClient();
+    try {
+      const count = async () => (await admin.query("SELECT count(*)::int AS n FROM member_invites")).rows[0].n as number;
+      const before = await count();
+      // "TEST setup, co." has the same web-address name as "Test Setup Co". Without the flag nothing changes.
+      await expect(setupCompany(admin, "TEST setup, co.", [{ email: "stranger@other-company.example", displayName: "Stranger" }]))
+        .rejects.toThrow(/already exists.*Nothing was changed/);
+      expect(await count()).toBe(before);
+      const { rows } = await admin.query("SELECT 1 FROM member_invites WHERE email = 'stranger@other-company.example'");
+      expect(rows).toEqual([]);
+    } finally {
+      await admin.end();
+    }
   });
 });

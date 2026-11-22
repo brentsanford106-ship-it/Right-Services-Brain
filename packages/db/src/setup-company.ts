@@ -9,12 +9,23 @@ export interface SetupPerson {
 /**
  * Creates a REAL company (with the Owner / Manager / Employee roles) and adds its first owners by email.
  * Nobody gets an account here: each owner becomes a member the first time they sign in with Microsoft
- * using that email (see app.claim_invites). Safe to run again: an existing company is reused and an email
- * that already has an open invite or membership is skipped.
+ * using that email (see app.claim_invites).
+ *
+ * Company walls: a company whose name matches an existing one (same web-address name, e.g. "Acme Co" and
+ * "ACME, Co.") is NEVER reused silently, because that would make the new owners owners of someone else's company.
+ * To add owners to an existing company on purpose, pass `{ addToExisting: true }` (CLI: --add-to-existing);
+ * then an email that already has an open invite or membership is skipped, so running it again is safe.
  *
  * Runs with the database admin connection, so only someone with the admin password (Azure Key Vault) can run it.
  */
-export async function setupCompany(client: pg.ClientBase, name: string, owners: SetupPerson[]): Promise<{ orgId: string; created: boolean; invited: string[] }> {
+export class CompanyExistsError extends Error {}
+
+export async function setupCompany(
+  client: pg.ClientBase,
+  name: string,
+  owners: SetupPerson[],
+  opts: { addToExisting?: boolean } = {},
+): Promise<{ orgId: string; created: boolean; invited: string[] }> {
   const cleanName = name.trim();
   if (cleanName.length < 2 || cleanName.length > 200) throw new Error("Company name must be 2 to 200 characters.");
   if (owners.length === 0) throw new Error("Add at least one owner (--owner email:Name).");
@@ -27,9 +38,15 @@ export async function setupCompany(client: pg.ClientBase, name: string, owners: 
   await client.query("BEGIN");
   try {
     let created = false;
-    let { rows } = await client.query<{ id: string }>("SELECT id FROM organizations WHERE slug = $1", [slug]);
+    let { rows } = await client.query<{ id: string; name: string }>("SELECT id, name FROM organizations WHERE slug = $1", [slug]);
+    if (rows[0] && !opts.addToExisting) {
+      throw new CompanyExistsError(
+        `A company called "${rows[0].name}" already exists (${rows[0].id}). Nothing was changed. ` +
+          "To add these owners to THAT company, run again with --add-to-existing. For a different company, use a different name.",
+      );
+    }
     if (!rows[0]) {
-      ({ rows } = await client.query<{ id: string }>("INSERT INTO organizations (name, slug) VALUES ($1, $2) RETURNING id", [cleanName, slug]));
+      ({ rows } = await client.query<{ id: string; name: string }>("INSERT INTO organizations (name, slug) VALUES ($1, $2) RETURNING id, name", [cleanName, slug]));
       created = true;
     }
     const orgId = rows[0]!.id;
