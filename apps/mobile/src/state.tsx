@@ -426,7 +426,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         } catch (e) {
           // Removed from this company (404): wipe this phone's copy of company data. A 401 is NOT treated as
           // removal here, because it can also mean a passing sign-in problem, and a wipe loses unsent photos.
-          if (e instanceof ApiError && e.status === 404 && sessionRef.current) {
+          // Only our own server's "not found" counts (it always carries a request id); a 404 page from Wi-Fi or Azure
+          // in between must never wipe unsent photos.
+          if (e instanceof ApiError && e.status === 404 && e.code === "not_found" && !!e.requestId && sessionRef.current) {
             await revokeRef.current?.();
             return;
           }

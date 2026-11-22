@@ -9,7 +9,9 @@
 #   2. Makes random passwords (nobody sees them) and keeps them in Key Vault.
 #   3. Deploys infra/main.bicep: API server, database, photo storage, website, spending alert.
 #   4. Sets up a GitHub "deploy" identity with no stored password (OpenID Connect), limited to this
-#      resource group, so the GitHub "Deploy" button can publish new versions.
+#      resource group, so the GitHub "Deploy" button can publish new versions. Azure accepts it from any run that
+#      uses this repository's "production" environment, so in GitHub that environment must require your approval
+#      and allow only the branch you deploy from (docs/HOSTING.md, go-live step 5).
 # It prints the values to copy into GitHub at the end. It costs money from step 3 on (about $30-40/month).
 set -euo pipefail
 
@@ -51,7 +53,7 @@ az keyvault secret set --vault-name "$VAULT" -n database-admin-url -o none \
 az keyvault secret set --vault-name "$VAULT" -n database-url -o none \
   --value "postgres://rsb_app_login:${APP_PW}@${PGHOST}:5432/rsb?sslmode=verify-full"
 
-echo "== GitHub deploy identity (no password; only this repository's $BRANCH branch may use it)"
+echo "== GitHub deploy identity (no password; only this repository's \"production\" environment may use it)"
 APP_ID=$(az ad app list --display-name rsb-github-deploy --query "[0].appId" -o tsv)
 if [ -z "$APP_ID" ]; then
   APP_ID=$(az ad app create --display-name rsb-github-deploy --query appId -o tsv)

@@ -57,6 +57,16 @@ describe("Azure Blob photo storage", () => {
     await store.delete(key); // deleting twice is fine
   });
 
+  it("write-once: a second write to the same photo original is refused and changes nothing", async () => {
+    const once = photoKey("00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-0000000000f1") + "/original";
+    const first = Buffer.from([9, 9, 9]);
+    expect(await store.putIfAbsent(once, first, "image/jpeg")).toBe(true);
+    expect(await store.putIfAbsent(once, Buffer.from([1, 1, 1]), "image/jpeg")).toBe(false);
+    expect((await store.get(once))?.equals(first)).toBe(true);
+    expect((await container.getBlockBlobClient(once).getProperties()).cacheControl).toBe("private, no-store");
+    await store.delete(once);
+  });
+
   it("the container is private: no anonymous reading", async () => {
     await store.put(key, Buffer.from("x"), "image/jpeg");
     const res = await fetch(`http://127.0.0.1:${PORT}/devstoreaccount1/photos/${key}`);

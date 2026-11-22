@@ -385,6 +385,13 @@ export async function teamRoutes(app: FastifyInstance, { db, config }: RouteDeps
     const { orgId, inviteId } = parse(InviteParams, req.params);
     await inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("members.manage");
+      const { rows: inv } = await tx.query<{ role_ids: string[] }>(
+        "SELECT role_ids FROM member_invites WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL FOR UPDATE",
+        [inviteId],
+      );
+      if (!inv[0]) throw notFound();
+      // Same rule as suspending or removing someone: you can't cancel the invite of someone stronger than you.
+      mustHoldAll(ctx, await permissionsOfRoles(tx, inv[0].role_ids));
       const { rowCount } = await tx.query("UPDATE member_invites SET revoked_at = now() WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL", [inviteId]);
       if (rowCount !== 1) throw notFound();
       await recordAudit(tx, ctx, "member.invite_revoked", "member_invite", inviteId);

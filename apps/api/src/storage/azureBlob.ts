@@ -20,6 +20,20 @@ export class AzureBlobStorage implements ObjectStorage {
     });
   }
 
+  async putIfAbsent(key: string, data: Buffer, contentType: string): Promise<boolean> {
+    assertValidKey(key);
+    try {
+      await this.container.getBlockBlobClient(key).uploadData(data, {
+        blobHTTPHeaders: { blobContentType: contentType, blobCacheControl: "private, no-store" },
+        conditions: { ifNoneMatch: "*" }, // Azure refuses the write if the blob already exists
+      });
+      return true;
+    } catch (e) {
+      if (e instanceof RestError && (e.statusCode === 409 || e.statusCode === 412)) return false;
+      throw e;
+    }
+  }
+
   async get(key: string): Promise<Buffer | null> {
     assertValidKey(key);
     try {
