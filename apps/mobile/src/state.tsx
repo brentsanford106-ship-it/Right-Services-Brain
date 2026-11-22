@@ -236,7 +236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void (async () => {
       try {
-        clearScratch(); // leftovers from an upload interrupted by the app closing
+        clearScratch(); // unencrypted leftovers from a shot, upload or share interrupted by the app closing
         const savedServer = await SecureStore.getItemAsync(SERVER_KEY, OPTS);
         if (savedServer) {
           serverRef.current = savedServer;
@@ -295,6 +295,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await entra.forget().catch(() => undefined);
     await holder.current?.queue.wipe();
     await ExpoCipher.destroyKey(); // crypto-shred: even a missed file can no longer be decrypted
+    clearScratch(); // and remove any unencrypted temporary copies
     await SecureStore.deleteItemAsync(SESSION_KEY, OPTS);
     token.current = null;
     sessionRef.current = null;

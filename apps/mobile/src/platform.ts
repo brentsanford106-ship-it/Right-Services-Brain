@@ -104,9 +104,29 @@ export function scratchDir(): Directory {
   return d;
 }
 
+/**
+ * Cache folders where other libraries write unencrypted image files:
+ * - "Camera": expo-camera saves every new photo here before the app encrypts it.
+ * - "ImageManipulator": the thumbnail is made here before it is encrypted.
+ * The app deletes these files about a second after each shot, but if the app is closed or
+ * crashes in that second they would stay behind, unencrypted, until iOS clears the cache.
+ */
+const OTHER_PLAINTEXT_CACHES = ["Camera", "ImageManipulator"];
+
+/**
+ * Deletes every unencrypted temporary copy: our own scratch folder (uploads, shares) and the
+ * camera's and thumbnail maker's folders. Run at every app start and on sign-out. Only call it
+ * when no photo is being taken or saved (app start, sign-out), or a photo in progress would be lost.
+ */
 export function clearScratch(): void {
-  const d = new Directory(Paths.cache, "rsb-scratch");
-  if (d.exists) d.delete();
+  for (const name of ["rsb-scratch", ...OTHER_PLAINTEXT_CACHES]) {
+    try {
+      const d = new Directory(Paths.cache, name);
+      if (d.exists) d.delete();
+    } catch {
+      // Not there or already being removed; nothing to do.
+    }
+  }
 }
 
 export function deleteQuietly(uri: string | null | undefined): void {
