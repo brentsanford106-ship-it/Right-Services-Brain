@@ -76,7 +76,11 @@ describe("adding a person and their first sign-in", () => {
     // Audited, without copying the email address into the log.
     const admin = await adminClient();
     try {
-      const { rows } = await admin.query("SELECT action, metadata::text AS m FROM audit_events WHERE action IN ('member.invited', 'member.invite_accepted') AND organization_id = $1", [ORG_A]);
+      const { rows } = await admin.query(
+        `SELECT action, metadata::text AS m FROM audit_events WHERE organization_id = $1
+            AND ((action = 'member.invited' AND target_id = $2) OR (action = 'member.invite_accepted' AND metadata->>'inviteId' = $2::text))`,
+        [ORG_A, r.body.id],
+      );
       expect(rows.map((x) => x.action).sort()).toEqual(["member.invite_accepted", "member.invited"]);
       for (const x of rows) expect(x.m).not.toContain("@");
     } finally {

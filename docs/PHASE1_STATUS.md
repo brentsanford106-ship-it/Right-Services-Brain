@@ -52,7 +52,7 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 
 ## Test results (2026-11-21: cloud dev environment, and again on JB's Windows PC with the same counts)
 
-- Server: 237 of 237 pass (includes the end-to-end acceptance test, team & roles, delete-forever / keep-time, 10 add/remove-people tests and 4 tests of the real token checker against a stand-in identity provider, the "sign in again" owner setting, the real-company setup tool, and 4 Azure Blob storage tests against Microsoft's emulator). Counts from this cloud dev environment on 2026-11-21; not yet re-run on JB's PC.
+- Server: 241 of 241 pass (includes the end-to-end acceptance test, team & roles, delete-forever / keep-time, 10 add/remove-people tests and 4 tests of the real token checker against a stand-in identity provider, the "sign in again" owner setting, the real-company setup tool, 4 Azure Blob storage tests against Microsoft's emulator, and 4 company-walls sweeps over every table and every route). Counts from this cloud dev environment on 2026-11-21; not yet re-run on JB's PC.
 - Offline queue and sync: 24 of 24 pass.
 - Web: 8 of 8 pass.
 - iPhone app: type check passes and the iOS bundle builds. There are no automated tests of the iPhone screens themselves.

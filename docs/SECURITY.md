@@ -79,3 +79,11 @@ This is a development build. **It is not secure for real data yet.** The items u
 - Linking runs in one database function (`app.claim_invites`) with row locks, so two sign-ins at once can't create two accounts.
 - The audit log records `member.invited`, `member.invite_revoked`, `member.invite_accepted`, `member.status_changed` without email addresses.
 - Known limit: only Microsoft's email one-time code should be enabled. If other sign-in methods are added later, we must confirm each one verifies the email before it is trusted.
+
+## Company walls (checked 2026-11-22)
+
+`apps/api/test/company-walls.test.ts` checks that one company can never read or change another's data, in two independent layers:
+- **Database:** every table holding company data has row-level security switched on and forced (checked automatically, so a new table without it fails the test). The app's own database login, working as company B, sees zero company A rows in every table and can't update or delete any.
+- **Every API route (44):** company B's owner, who holds every permission, calls each route with company A's ids, both in company A's address (all answer "not found") and smuggled into company B's own address (all refused). No answer contains any company A data, and a fingerprint of all company A rows is identical before and after.
+
+Result: no gaps found. This runs on every change (GitHub "Checks").
