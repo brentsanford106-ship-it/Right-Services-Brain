@@ -133,6 +133,39 @@ describe("encrypted offline storage", () => {
     await expect(other.load()).rejects.toBeInstanceOf(VaultLockedError);
   });
 
+  it("a wrong or missing key never deletes the encrypted photos (no silent loss)", async () => {
+    await shot(1);
+    await shot(2);
+    const before = [...store.files.keys()].sort();
+    const other = new PhotoQueue(new Vault(store, await WebCryptoCipher.create()), { uuid: randomUUID });
+    await expect(other.load()).rejects.toBeInstanceOf(VaultLockedError);
+    expect([...store.files.keys()].sort()).toEqual(before);
+    // With the right key again, everything is still readable.
+    const reopened = await freshQueue();
+    expect(reopened.all()).toHaveLength(2);
+  });
+
+  it("a damaged photo-details file blocks loading instead of quietly dropping that photo", async () => {
+    const a = await shot(1);
+    await shot(2);
+    const name = `r-${a.localId}`;
+    const damaged = new Uint8Array(store.files.get(name)!);
+    damaged[damaged.length - 1] = (damaged[damaged.length - 1] ?? 0) ^ 1;
+    store.files.set(name, damaged);
+    const count = store.files.size;
+    await expect(freshQueue()).rejects.toBeInstanceOf(VaultLockedError);
+    expect(store.files.size).toBe(count);
+  });
+
+  it("each save uses a fresh random nonce, so the same photo never produces the same file", async () => {
+    const v = new Vault(store, cipher);
+    await v.putBytes("x-a", enc("same bytes"));
+    const first = new Uint8Array(store.files.get("x-a")!);
+    await v.putBytes("x-a", enc("same bytes"));
+    expect(Buffer.from(store.files.get("x-a")!).equals(Buffer.from(first))).toBe(false);
+    expect(new TextDecoder().decode((await v.getBytes("x-a"))!)).toBe("same bytes");
+  });
+
   it("survives an app restart: photos, flags and notes are all still there", async () => {
     const a = await shot(1);
     await queue.edit(a.localId, { flagged: true, note: "check this" });
