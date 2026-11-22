@@ -67,7 +67,9 @@ Before you start: the Microsoft sign-in setup (docs/AUTHENTICATION.md) is done, 
 
 ## Whose account: Nate's company or yours
 
-Choose before step 1. Both work technically. What changes is how easy it is to sell to other companies later.
+**Decided 2026-11-22:** for now the Azure account and the Microsoft sign-in tenant go under **Nate's company**. JB will set up their own account (and business) when a second client comes. At that point, follow "Moving to JB's own account" below **before** the second company's data goes in.
+
+The trade-offs behind that choice:
 
 **If it's under Nate's company:**
 - Other companies' photos would sit in an account Nate's company pays for and controls. Most customers won't accept that, so you'd need to move everything to your own account first.
@@ -78,3 +80,15 @@ Choose before step 1. Both work technically. What changes is how easy it is to s
 **If it's under your own account (or your own business):** Nate's company is simply your first customer. The company walls in the app already keep each company's data separate. You'd bill Nate, or not. This is the easier path if selling is likely.
 
 Either way, keep at least two owners on the Azure account and the Entra tenant, so nobody gets locked out.
+
+## Moving to JB's own account (when the second client comes)
+
+Do this before any second company's photos go in. Rough plan; each step needs checking against Microsoft's docs at the time:
+1. JB creates their own Azure account, and ideally their business, first.
+2. JB runs `infra/go-live.sh` in their own account. This makes a fresh, empty copy of everything.
+3. JB creates a new Microsoft sign-in tenant in their own account (docs/AUTHENTICATION.md).
+4. Copy the data: database backup and restore into the new server, and copy the photos between storage accounts (Azure's copy tool, AzCopy).
+5. Re-link people to the new sign-in tenant. A small one-time script (not built yet) moves each person to the new tenant by email, so they just sign in again with the same email address.
+6. Point the phone app and website at the new addresses, check everything, then delete the old resources in Nate's account.
+
+Simpler alternative: Nate transfers the whole Azure subscription to JB. Microsoft supports this, but the sign-in tenant stays where it is, so step 5 is still needed.
