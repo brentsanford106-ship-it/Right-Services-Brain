@@ -52,7 +52,7 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 
 ## Test results (2026-11-21: cloud dev environment, and again on JB's Windows PC with the same counts)
 
-- Server: 233 of 233 pass (includes the end-to-end acceptance test, team & roles, delete-forever / keep-time, 10 add/remove-people tests and 4 tests of the real token checker against a stand-in identity provider, the "sign in again" owner setting, and the real-company setup tool). Counts from this cloud dev environment on 2026-11-21; not yet re-run on JB's PC.
+- Server: 237 of 237 pass (includes the end-to-end acceptance test, team & roles, delete-forever / keep-time, 10 add/remove-people tests and 4 tests of the real token checker against a stand-in identity provider, the "sign in again" owner setting, the real-company setup tool, and 4 Azure Blob storage tests against Microsoft's emulator). Counts from this cloud dev environment on 2026-11-21; not yet re-run on JB's PC.
 - Offline queue and sync: 24 of 24 pass.
 - Web: 8 of 8 pass.
 - iPhone app: type check passes and the iOS bundle builds. There are no automated tests of the iPhone screens themselves.
@@ -60,8 +60,8 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 ## Simulated or not built yet
 
 - **Sign-in is still simulated in use.** You pick a test person. Real sign-in is built and tested against a stand-in, but it has never talked to Microsoft, because no Entra tenant exists yet (needs JB's go-ahead; free, but Microsoft requires an Azure account). Blocks real data.
-- **Cloud storage is not built.** Photos are stored on the server's disk (development only). The server refuses to start in staging/production without Azure Blob Storage, which is not implemented yet.
-- **No cloud backups yet.** Nothing is deployed. Backup and recovery are planned with Azure (database point-in-time restore, blob soft-delete/versioning); not set up.
+- **Cloud storage is built but not live.** Azure Blob storage is written and tested against Microsoft's storage emulator; nothing exists in Azure yet. Hosting is ready to create: see `docs/HOSTING.md`.
+- **No cloud backups yet.** Nothing is deployed. Backups are configured in the hosting blueprint (14-day database restore, 30-day photo recovery) but have never run, and no practice restore has been done.
 - **Real-iPhone testing is partial.** Done in Expo Go on one iPhone (iOS 26). Still to check on a device: notes after the fix, GPS, encryption speed on many large photos, upload while the app is in the background, and opening the app while still offline (Expo Go itself can't open without the PC connection, so this needs a standalone build). Photos did survive the app being fully closed and reopened. A standalone app build (not Expo Go) needs the paid Apple Developer account.
 - **Demo photos have no picture.** The made-up sample photo records have no image file, so they show "File not uploaded yet" / "Waiting for file". Their notes now say so.
 - **iPhone upload in the background is limited by iOS.** See `docs/IOS_SYNC.md`.

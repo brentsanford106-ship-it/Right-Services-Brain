@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { LocalDiskStorage } from "../src/storage/localDisk.js";
+import type { ObjectStorage } from "../src/storage/types.js";
 import { inject } from "vitest";
 import pg from "pg";
 import type { FastifyInstance } from "fastify";
@@ -22,7 +23,7 @@ export interface TestApp {
   db: Database;
   devAuth: DevAuth;
   logs: string[];
-  storage: LocalDiskStorage;
+  storage: ObjectStorage;
   token(subject: string, ttlSeconds?: number): Promise<string>;
   /** Authenticated request helper. */
   as(subject: string): {
@@ -42,7 +43,7 @@ export interface Res {
   headers: Record<string, string | string[] | number | undefined>;
 }
 
-export async function createTestApp(overrides: Record<string, string> = {}, opts: { extraVerifiers?: TokenVerifier[] } = {}): Promise<TestApp> {
+export async function createTestApp(overrides: Record<string, string> = {}, opts: { extraVerifiers?: TokenVerifier[]; storage?: ObjectStorage } = {}): Promise<TestApp> {
   const config = loadConfig({
     APP_ENV: "test",
     DATABASE_URL: inject("appDbUrl"),
@@ -63,7 +64,7 @@ export async function createTestApp(overrides: Record<string, string> = {}, opts
       cb();
     },
   });
-  const storage = new LocalDiskStorage(mkdtempSync(path.join(tmpdir(), "rsb-store-")));
+  const storage: ObjectStorage = opts.storage ?? new LocalDiskStorage(mkdtempSync(path.join(tmpdir(), "rsb-store-")));
   const app = await buildApp({
     config,
     db,

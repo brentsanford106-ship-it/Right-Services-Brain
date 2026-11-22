@@ -16,6 +16,9 @@ const EnvSchema = z.object({
   RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(300),
   STORAGE_DRIVER: z.enum(["local", "azure_blob"]).default("local"),
   LOCAL_STORAGE_DIR: z.string().default(".data/object-store"),
+  /** e.g. https://<account>.blob.core.windows.net (azure_blob only). No key: the server uses its managed identity. */
+  AZURE_STORAGE_ACCOUNT_URL: z.string().optional(),
+  AZURE_STORAGE_CONTAINER: z.string().regex(/^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])$/).default("photos"),
   /** Receipts, vehicles, mileage and member admin are Phase 2. Off unless explicitly enabled. */
   PHASE2_FEATURES: Bool.default(false),
 });
@@ -30,7 +33,7 @@ export interface AppConfig {
   devAuthEnabled: boolean;
   oidc: { issuer: string; audience: string; jwksUri: string } | null;
   rateLimitPerMinute: number;
-  storage: { driver: "local"; dir: string } | { driver: "azure_blob" };
+  storage: { driver: "local"; dir: string } | { driver: "azure_blob"; accountUrl: string; container: string };
   phase2Features: boolean;
 }
 
@@ -65,6 +68,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     oidc = { issuer: e.OIDC_ISSUER, audience: e.OIDC_AUDIENCE, jwksUri: e.OIDC_JWKS_URI };
   }
 
+  if (e.STORAGE_DRIVER === "azure_blob" && !/^https:\/\/[a-z0-9]{3,24}\.blob\.core\.windows\.net\/?$/.test(e.AZURE_STORAGE_ACCOUNT_URL ?? "")) {
+    throw new ConfigError("AZURE_STORAGE_ACCOUNT_URL must look like https://<account>.blob.core.windows.net");
+  }
+
   if (isDeployed) {
     if (!oidc) throw new ConfigError("A production identity provider (OIDC_*) is required in staging/production");
     if (e.STORAGE_DRIVER === "local") {
@@ -85,7 +92,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     devAuthEnabled: e.DEV_AUTH_ENABLED,
     oidc,
     rateLimitPerMinute: e.RATE_LIMIT_PER_MINUTE,
-    storage: e.STORAGE_DRIVER === "local" ? { driver: "local", dir: e.LOCAL_STORAGE_DIR } : { driver: "azure_blob" },
+    storage:
+      e.STORAGE_DRIVER === "local"
+        ? { driver: "local", dir: e.LOCAL_STORAGE_DIR }
+        : { driver: "azure_blob", accountUrl: e.AZURE_STORAGE_ACCOUNT_URL!.replace(/\/$/, ""), container: e.AZURE_STORAGE_CONTAINER },
     phase2Features: e.PHASE2_FEATURES,
   };
 }

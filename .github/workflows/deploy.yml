@@ -1,0 +1,79 @@
+# Publishes a new version to Azure. Runs only when someone presses "Run workflow" in the Actions tab,
+# and only after the "production" environment's reviewer approves (set in GitHub Settings > Environments).
+# Signs in to Azure with OpenID Connect: no Azure password is stored in GitHub.
+name: Deploy
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency: deploy-production
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build API
+        run: pnpm --filter @rsb/api bundle && cd apps/api/dist && zip -qr ../api.zip .
+      - name: Build website
+        env:
+          VITE_API_BASE_URL: ${{ vars.API_URL }}
+          VITE_ENTRA_AUTHORITY: ${{ vars.ENTRA_AUTHORITY }}
+          VITE_ENTRA_CLIENT_ID: ${{ vars.ENTRA_WEB_CLIENT_ID }}
+          VITE_ENTRA_API_SCOPE: ${{ vars.ENTRA_API_SCOPE }}
+        run: pnpm --filter @rsb/web build
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Update the database (opens the database to this runner only while it runs)
+        env:
+          RG: ${{ vars.AZURE_RESOURCE_GROUP }}
+          PG: ${{ vars.AZURE_POSTGRES_SERVER }}
+          KV: ${{ vars.AZURE_KEY_VAULT }}
+        run: |
+          set -euo pipefail
+          IP=$(curl -fsS https://api.ipify.org)
+          RULE="deploy-${GITHUB_RUN_ID}"
+          az postgres flexible-server firewall-rule create -g "$RG" -n "$PG" -r "$RULE" --start-ip-address "$IP" --end-ip-address "$IP" -o none
+          trap 'az postgres flexible-server firewall-rule delete -g "$RG" -n "$PG" -r "$RULE" --yes -o none' EXIT
+          ADMIN_URL=$(az keyvault secret show --vault-name "$KV" -n database-admin-url --query value -o tsv)
+          APP_PW=$(az keyvault secret show --vault-name "$KV" -n app-db-password --query value -o tsv)
+          echo "::add-mask::$ADMIN_URL"; echo "::add-mask::$APP_PW"
+          APP_ENV=production DATABASE_ADMIN_URL="$ADMIN_URL" APP_DB_USER=rsb_app_login APP_DB_PASSWORD="$APP_PW" pnpm db:migrate
+
+      - name: Publish API
+        run: az webapp deploy -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.AZURE_API_APP }}" --src-path apps/api/api.zip --type zip -o none
+
+      - name: Get website upload key
+        id: swa
+        run: |
+          T=$(az staticwebapp secrets list -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "${{ vars.AZURE_WEBSITE }}" --query properties.apiKey -o tsv)
+          echo "::add-mask::$T"; echo "token=$T" >> "$GITHUB_OUTPUT"
+      - name: Publish website
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swa.outputs.token }}
+          action: upload
+          app_location: apps/web/dist
+          skip_app_build: true
+          skip_api_build: true
+
+      - name: Check the API is up
+        run: |
+          for i in $(seq 1 30); do
+            curl -fsS "${{ vars.API_URL }}/health/ready" && exit 0
+            sleep 10
+          done
+          echo "The API did not come up. In Azure, open the API app > Log stream." && exit 1

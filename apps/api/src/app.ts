@@ -12,6 +12,7 @@ import { OidcVerifier } from "./auth/oidc.js";
 import { registerRoutes } from "./routes/index.js";
 import type { ObjectStorage } from "./storage/types.js";
 import { LocalDiskStorage } from "./storage/localDisk.js";
+import { azureBlobFromIdentity } from "./storage/azureBlob.js";
 import { startPurgeSchedule } from "./lib/purge.js";
 
 declare module "fastify" {
@@ -65,7 +66,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     },
     genReqId: () => randomUUID(),
     requestIdHeader: false, // never trust a client-supplied request id
-    bodyLimit: 64 * 1024, // JSON only; files go to blob storage via signed URLs (Phase 2)
+    bodyLimit: 64 * 1024, // JSON only; photo uploads have their own route and limit
     trustProxy: config.appEnv === "staging" || config.appEnv === "production",
   });
 
@@ -185,7 +186,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   let storage: ObjectStorage;
   if (deps.storage) storage = deps.storage;
   else if (config.storage.driver === "local") storage = new LocalDiskStorage(config.storage.dir);
-  else throw new Error("Azure Blob storage adapter is not implemented yet (Phase 2). Refusing to start.");
+  else storage = await azureBlobFromIdentity(config.storage.accountUrl, config.storage.container);
 
   await registerRoutes(app, { db, config, devAuth, storage });
 

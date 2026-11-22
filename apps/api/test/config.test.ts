@@ -4,6 +4,7 @@ import { ConfigError, loadConfig } from "../src/config.js";
 const base = { DATABASE_URL: "postgres://u:p@localhost/db" };
 const oidc = {
   STORAGE_DRIVER: "azure_blob",
+  AZURE_STORAGE_ACCOUNT_URL: "https://rsbphotos.blob.core.windows.net",
   OIDC_ISSUER: "https://example.ciamlogin.com/tenant/v2.0",
   OIDC_AUDIENCE: "api://rsb",
   OIDC_JWKS_URI: "https://example.ciamlogin.com/tenant/discovery/v2.0/keys",
