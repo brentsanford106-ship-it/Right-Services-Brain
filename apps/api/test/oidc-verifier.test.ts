@@ -62,6 +62,13 @@ describe("production token checker", () => {
     expect(id).toEqual({ issuer: ISSUER, subject: "sub-oidc-1", email: "Pat@Example.com", name: "Pat" });
   });
 
+  it("company walls: an email the provider marks as NOT verified is never used to join a company", async () => {
+    const id = await verifier.verify(await token({ sub: "sub-oidc-unverified", email: "someone@example.com", email_verified: false }));
+    expect(id).toEqual({ issuer: ISSUER, subject: "sub-oidc-unverified" });
+    const ok = await verifier.verify(await token({ sub: "sub-oidc-verified", email: "someone@example.com", email_verified: true }));
+    expect(ok?.email).toBe("someone@example.com");
+  });
+
   it("rejects tokens signed by someone else, for another app, from another issuer, expired, or unsigned", async () => {
     expect(await verifier.verify(await token({}, { key: otherKey }))).toBeNull();
     expect(await verifier.verify(await token({}, { aud: "some-other-api" }))).toBeNull();

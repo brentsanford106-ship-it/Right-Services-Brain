@@ -4,7 +4,7 @@ import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import type { AppConfig } from "./config.js";
-import type { Database } from "./lib/db.js";
+import { assertRestrictedLogin, type Database } from "./lib/db.js";
 import { HttpError } from "./lib/errors.js";
 import type { TokenVerifier, VerifiedIdentity } from "./auth/types.js";
 import { DevAuth } from "./auth/dev.js";
@@ -52,6 +52,8 @@ const PG_ERROR_MAP: Record<string, HttpError> = {
 
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const { config, db } = deps;
+  // The company walls depend on the API's database login being the restricted one. Check before serving anything.
+  await assertRestrictedLogin(db.pool);
 
   const app = Fastify({
     logger: {

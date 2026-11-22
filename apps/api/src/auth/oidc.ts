@@ -30,7 +30,11 @@ export class OidcVerifier implements TokenVerifier {
         requiredClaims: ["sub", "exp", "iat"],
       });
       if (typeof payload.sub !== "string" || !payload.iss) return null;
-      const email = typeof payload.email === "string" ? payload.email.trim() : undefined;
+      // The email is what links a person to a company's invite, so it must be one Microsoft has checked.
+      // Our Entra tenant only allows email-verified accounts; on top of that, a token that says the email is
+      // NOT verified (email_verified: false) never gets its email used. (Assumption to confirm on the real tenant.)
+      const unverified = payload.email_verified === false || payload.email_verified === "false";
+      const email = typeof payload.email === "string" && !unverified ? payload.email.trim() : undefined;
       const name = typeof payload.name === "string" ? payload.name : undefined;
       return { issuer: payload.iss, subject: payload.sub, ...(email ? { email } : {}), ...(name ? { name } : {}) };
     } catch (e) {

@@ -12,7 +12,8 @@ export interface ObjectStorage {
 const KEY = /^org\/[0-9a-f-]{36}\/photos\/[0-9a-f-]{36}(\/(original|preview))?$/;
 
 export function photoKey(orgId: string, photoId: string): string {
-  const key = `org/${orgId}/photos/${photoId}`;
+  // UUIDs are compared case-insensitively by the database; file names always use the lowercase form.
+  const key = `org/${orgId.toLowerCase()}/photos/${photoId.toLowerCase()}`;
   if (!KEY.test(key)) throw new Error("invalid storage key");
   return key;
 }

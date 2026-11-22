@@ -6,6 +6,7 @@ import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import { fetch as expoFetch } from "expo/fetch";
 import Constants from "expo-constants";
+import { Image } from "expo-image";
 import {
   ApiError,
   HttpClient,
@@ -296,6 +297,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await holder.current?.queue.wipe();
     await ExpoCipher.destroyKey(); // crypto-shred: even a missed file can no longer be decrypted
     clearScratch(); // and remove any unencrypted temporary copies
+    // Company walls on a shared phone: forget photos shown from the server, so the next person can't see them.
+    await Image.clearMemoryCache().catch(() => false);
+    await Image.clearDiskCache().catch(() => false);
     await SecureStore.deleteItemAsync(SESSION_KEY, OPTS);
     token.current = null;
     sessionRef.current = null;
