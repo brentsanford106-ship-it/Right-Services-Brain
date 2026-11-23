@@ -14,7 +14,7 @@ function renderApp(path = "/") {
   );
 }
 
-afterEach(() => { cleanup(); session.set(null); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); session.set(null); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("web dashboard", () => {
   it("company walls: signing out forgets all loaded company data (shared computers)", async () => {
@@ -194,5 +194,61 @@ describe("web dashboard", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Send" })[0]!);
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toMatchObject({ body: "Fixed @Eli Employee", parentId: "c1", mentionIds: ["eli"] });
+  });
+  it("drawing: shows saved marks, hide/show, draw an arrow, undo, save sends only the change, comment on a mark", async () => {
+    session.set("x.y.z");
+    const org = { organization: { id: "o", name: "Demo Co", slug: "demo" }, membershipId: "m", roles: ["manager"], permissions: ["org.read", "jobs.read_all", "photo_comments.create", "photo_markups.create"] };
+    const job = { id: "j1", jobNumber: "HP-1001", title: "Pump island (DEMO)", status: "active", siteName: null, siteAddress: null, customerName: null, scheduledStart: null, scheduledEnd: null, assignees: null };
+    const photo = { jobId: "j1", jobNumber: "HP-1001", siteName: null, stage: "during", note: null, flagged: false, flaggedAt: null, uploadStatus: "stored", openFlags: 0, latitude: null, longitude: null, widthPx: 1000, heightPx: 750, hasPreview: true, storedAt: null, captureSource: "in_app_camera", uploadedByMe: false, canDelete: false, capturedAtKnown: true, photographerAvatarAt: null, photographerId: "eli", photographer: "Eli Employee", uploadedBy: "Eli Employee", takenByMe: false, lastCommentAt: null, commentCount: 0, markupCount: 1, id: "p1", capturedAt: "2026-11-10T09:00:00Z" };
+    const saved = { id: "k1", kind: "circle", color: "red", size: 2, points: [[0.1, 0.1], [0.3, 0.3]], label: null, authorId: "m", author: "Morgan Manager", createdAt: "2026-11-10T09:05:00Z", mine: true, canRemove: true };
+    const posts: { url: string; body: unknown }[] = [];
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") posts.push({ url, body: JSON.parse(String(init.body)) });
+      if (url.includes("/content") || url.endsWith("/avatar")) return new Response("img", { status: 200 });
+      if (url.endsWith("/markups/changes")) return new Response(JSON.stringify({ items: [saved] }), { status: 200 });
+      if (url.endsWith("/photos/p1/markups")) return new Response(JSON.stringify({ items: [saved] }), { status: 200 });
+      if (url.endsWith("/photos/p1/comments") && init?.method === "POST") return new Response(JSON.stringify({ id: "c9", parentId: null, markupId: "k1", authorId: "m", author: "Morgan Manager", authorAvatarAt: null, body: "Fix", mentions: [], createdAt: "2026-11-10T09:10:00Z", editedAt: null, deletedAt: null, deletedBy: null, mine: true, canEdit: true, canDelete: true, photoId: "p1" }), { status: 201 });
+      if (url.endsWith("/photos/p1/comments")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      if (url.endsWith("/jobs/j1/people")) return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      if (url.endsWith("/jobs/j1/photos")) return new Response(JSON.stringify({ items: [photo] }), { status: 200 });
+      if (url.endsWith("/jobs/j1")) return new Response(JSON.stringify(job), { status: 200 });
+      return new Response(JSON.stringify(org), { status: 200 });
+    }));
+    // The drawing area is 100 x 100 pixels on screen in this test.
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) } as DOMRect);
+    renderApp("/orgs/o/jobs/j1");
+    fireEvent.click(await screen.findByRole("button", { name: /Open .* photo/ }));
+    expect(await screen.findByRole("img", { name: "1 drawing on this photo" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Hide drawings (1)" }));
+    expect(screen.queryByRole("img", { name: "1 drawing on this photo" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show drawings (1)" }));
+
+    // Comment on the circle: click on its outline.
+    fireEvent.pointerDown(screen.getByRole("img", { name: "1 drawing on this photo" }), { clientX: 20, clientY: 10 });
+    expect(await screen.findByText(/Commenting on the red circle/)).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Comment on the red circle" }), { target: { value: "Fix" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(posts.find((p) => p.url.endsWith("/comments"))?.body).toMatchObject({ body: "Fix", markupId: "k1" }));
+
+    // Draw an arrow, undo it, redo it, save.
+    fireEvent.click(screen.getByRole("button", { name: "✎ Draw" }));
+    fireEvent.click(screen.getByRole("button", { name: "Arrow" }));
+    const area = screen.getByRole("img", { name: "1 drawing on this photo" });
+    fireEvent.pointerDown(area, { clientX: 50, clientY: 50, pointerId: 1 });
+    fireEvent.pointerMove(area, { clientX: 80, clientY: 70, pointerId: 1 });
+    fireEvent.pointerUp(area, { clientX: 80, clientY: 70, pointerId: 1 });
+    expect(screen.getByRole("img", { name: "2 drawings on this photo" })).toBeTruthy();
+    const saveBtn = () => screen.getByRole("button", { name: "Save drawing" }) as HTMLButtonElement;
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(saveBtn().disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Redo" }));
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(posts.some((p) => p.url.endsWith("/markups/changes"))).toBe(true));
+    const sent = posts.find((p) => p.url.endsWith("/markups/changes"))!.body as { add: { kind: string; points: number[][]; color: string }[]; remove: string[] };
+    expect(sent.remove).toEqual([]);
+    expect(sent.add).toHaveLength(1);
+    expect(sent.add[0]).toMatchObject({ kind: "arrow", color: "red", points: [[0.5, 0.5], [0.8, 0.7]] });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Save drawing" })).toBeNull()); // back to viewing
   });
 });

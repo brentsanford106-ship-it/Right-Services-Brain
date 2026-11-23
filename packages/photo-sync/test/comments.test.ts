@@ -26,6 +26,7 @@ class Server implements PhotoApi {
   photos = new Map<string, { id: string; clientRef: string }>();
   comments: { id: string; clientRef: string; photoId: string; parentId: string | null; body: string; mentionIds: string[] }[] = [];
   dropNextComment = false;
+  markupIds: (string | null | undefined)[] = [];
   private gate() {
     if (this.offline) throw new NetworkError();
   }
@@ -37,8 +38,9 @@ class Server implements PhotoApi {
   }
   async uploadContent() { this.gate(); return { uploadStatus: "stored", duplicate: false }; }
   async updatePhoto(): Promise<ServerPhoto> { throw new Error("unused"); }
-  async createComment(_o: string, photoId: string, b: { clientRef: string; body: string; parentId?: string | null; mentionIds: string[] }) {
+  async createComment(_o: string, photoId: string, b: { clientRef: string; body: string; parentId?: string | null; mentionIds: string[]; markupId?: string | null }) {
     this.gate();
+    this.markupIds.push(b.markupId);
     if (this.failWith) throw this.failWith;
     let c = this.comments.find((x) => x.clientRef === b.clientRef);
     if (!c) { c = { id: randomUUID(), photoId, parentId: b.parentId ?? null, clientRef: b.clientRef, body: b.body, mentionIds: b.mentionIds }; this.comments.push(c); }
@@ -160,6 +162,16 @@ describe("comments written offline", () => {
     await queue.wipe();
     expect(outbox.all()).toEqual([]);
     expect(store.files.size).toBe(0);
+  });
+
+  it("a comment about a mark on the photo keeps that link when it is sent later", async () => {
+    server.offline = true;
+    await onServerPhoto("This circle", { markupId: "00000000-0000-4a00-8000-0000000000aa" });
+    await engine.run();
+    server.offline = false;
+    clock += 60_000;
+    await engine.run();
+    expect(server.markupIds).toEqual(["00000000-0000-4a00-8000-0000000000aa"]);
   });
 
   it("checks the wording before saving", async () => {

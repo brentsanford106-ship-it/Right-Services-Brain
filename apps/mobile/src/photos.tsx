@@ -27,6 +27,11 @@ export interface ServerPhoto {
   hasPreview: boolean;
   /** Comments and replies (not deleted). Missing on copies saved by older app versions. */
   commentCount?: number;
+  /** Marks drawn on the photo. */
+  markupCount?: number;
+  /** Size of the display copy (what drawings are measured against). */
+  widthPx?: number | null;
+  heightPx?: number | null;
   /** Server's answer to "may I delete this?" (for hiding buttons; the server still checks). */
   canDelete?: boolean;
   latitude: number | null;

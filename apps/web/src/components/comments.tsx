@@ -65,7 +65,9 @@ function Composer({ jobId, initial = "", label, onSend, onCancel, busy }: {
   );
 }
 
-function CommentView({ c, jobId, onReply, invalidate }: { c: PhotoComment; jobId: string; onReply?: () => void; invalidate: () => Promise<void> }) {
+type MarkRef = { id: string; name: string };
+
+function CommentView({ c, jobId, onReply, invalidate, marks, onShowMark }: { c: PhotoComment; jobId: string; onReply?: () => void; invalidate: () => Promise<void>; marks: MarkRef[]; onShowMark?: (id: string) => void }) {
   const orgId = useOrgId();
   const [editing, setEditing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -84,6 +86,10 @@ function CommentView({ c, jobId, onReply, invalidate }: { c: PhotoComment; jobId
       <PersonBadge id={c.authorId} name={c.author} avatarAt={c.authorAvatarAt} className="sm" />
       <div className="cbody">
         <div className="small"><strong>{c.author}</strong>{c.mine ? " (you)" : ""} <span className="muted">{when(c.createdAt)}{c.editedAt && !c.deletedAt ? " · edited" : ""}</span></div>
+        {c.markupId && !c.deletedAt && (() => {
+          const m = marks.find((x) => x.id === c.markupId);
+          return m ? <button className="link small" onClick={() => onShowMark?.(m.id)}>📍 About the {m.name}</button> : <span className="muted small">📍 About a mark that was removed</span>;
+        })()}
         {c.deletedAt ? (
           <p className="muted small"><em>Comment deleted{c.deletedBy ? ` by ${c.deletedBy}` : ""}</em></p>
         ) : editing ? (
@@ -107,7 +113,11 @@ function CommentView({ c, jobId, onReply, invalidate }: { c: PhotoComment; jobId
 }
 
 /** Comments and one level of replies on one photo, inside the photo viewer. */
-export function CommentsPanel({ photoId, jobId, onChanged }: { photoId: string; jobId: string; onChanged: () => Promise<void> }) {
+export function CommentsPanel({ photoId, jobId, onChanged, marks = [], aboutMark = null, onClearMark, onShowMark }: {
+  photoId: string; jobId: string; onChanged: () => Promise<void>;
+  /** Marks drawn on the photo, so a comment can be about one of them. */
+  marks?: MarkRef[]; aboutMark?: MarkRef | null; onClearMark?: () => void; onShowMark?: (id: string) => void;
+}) {
   const orgId = useOrgId();
   const qc = useQueryClient();
   const canComment = useCan("photo_comments.create");
@@ -118,9 +128,9 @@ export function CommentsPanel({ photoId, jobId, onChanged }: { photoId: string; 
   const q = useQuery({ queryKey: key, queryFn: () => api<{ items: PhotoComment[] }>(`/v1/orgs/${orgId}/photos/${photoId}/comments`) });
   const invalidate = async () => { await qc.invalidateQueries({ queryKey: key }); await onChanged(); };
   const add = useMutation({
-    mutationFn: (v: { body: string; mentionIds: string[]; parentId: string | null }) =>
+    mutationFn: (v: { body: string; mentionIds: string[]; parentId: string | null; markupId?: string | null }) =>
       api<PhotoComment>(`/v1/orgs/${orgId}/photos/${photoId}/comments`, { method: "POST", body: { clientRef: crypto.randomUUID(), ...v } }),
-    onSuccess: async () => { setErr(null); setReplyTo(null); setSent((n) => n + 1); await invalidate(); },
+    onSuccess: async () => { setErr(null); setReplyTo(null); setSent((n) => n + 1); onClearMark?.(); await invalidate(); },
     onError: (e) => setErr(errorText(e)),
   });
 
@@ -137,8 +147,8 @@ export function CommentsPanel({ photoId, jobId, onChanged }: { photoId: string; 
       {q.data && !tops.length && <p className="muted small">No comments yet.</p>}
       {tops.map((c) => (
         <div key={c.id} className="thread">
-          <CommentView c={c} jobId={jobId} invalidate={invalidate} onReply={canComment ? () => setReplyTo(c.id) : undefined} />
-          {repliesTo(c.id).map((r) => <CommentView key={r.id} c={r} jobId={jobId} invalidate={invalidate} />)}
+          <CommentView c={c} jobId={jobId} invalidate={invalidate} marks={marks} onShowMark={onShowMark} onReply={canComment ? () => setReplyTo(c.id) : undefined} />
+          {repliesTo(c.id).map((r) => <CommentView key={r.id} c={r} jobId={jobId} invalidate={invalidate} marks={marks} onShowMark={onShowMark} />)}
           {replyTo === c.id && (
             <div className="reply">
               <Composer key={`reply-${c.id}`} jobId={jobId} label={`Reply to ${c.author}`} busy={add.isPending} onCancel={() => setReplyTo(null)} onSend={(body, mentionIds) => add.mutate({ body, mentionIds, parentId: c.id })} />
@@ -146,7 +156,11 @@ export function CommentsPanel({ photoId, jobId, onChanged }: { photoId: string; 
           )}
         </div>
       ))}
-      {canComment && <Composer key={`new-${photoId}-${sent}`} jobId={jobId} label="Add a comment" busy={add.isPending} onSend={(body, mentionIds) => add.mutate({ body, mentionIds, parentId: null })} />}
+      {canComment && aboutMark && (
+        <div className="about-mark small">📍 Commenting on the {aboutMark.name} <button className="link" onClick={onClearMark} aria-label="Not about this mark">✕</button></div>
+      )}
+      {canComment && <Composer key={`new-${photoId}-${sent}`} jobId={jobId} label={aboutMark ? `Comment on the ${aboutMark.name}` : "Add a comment"} busy={add.isPending} onSend={(body, mentionIds) => add.mutate({ body, mentionIds, parentId: null, markupId: aboutMark?.id ?? null })} />}
+      {canComment && !aboutMark && marks.length > 0 && <p className="muted small">Tip: click a drawing on the photo to comment on it.</p>}
       {err && <p className="error small" role="alert">{err}</p>}
     </section>
   );

@@ -9,7 +9,7 @@ It is built in six steps, each its own pull request, tested on a real iPhone bef
 | 1a | Who took it: photographer kept separate from uploader, initials on thumbnails, People filter (several people, Photos I took), sort, small gallery thumbnails | Built and tested automatically, **not yet tested on an iPhone** |
 | 1b | Profile pictures, importing photos from the phone's library | Built and tested automatically, **not yet tested on an iPhone** |
 | 2 | Comments and replies, @mentions, edit history, offline | Built and tested automatically, **not yet tested on an iPhone** |
-| 3 | Markup (circle, arrow, pen, box, text, pin), show/hide, zoom | Not started |
+| 3 | Markup (circle, arrow, pen, box, text, pin), show/hide, zoom | Built and tested automatically, **not yet tested on an iPhone** |
 | 4 | Issues: assign, In Progress, follow-up photo, send for review, approve, send back, reopen, job Issues tab, To Fix list, employee Report issue | Not started |
 | 5 | In-app alerts, per-person alert settings, offline polish, sharing an annotated copy | Not started |
 | 6 | Company-wall tests for everything new, full acceptance run on iPhone and web | Not started |
@@ -101,4 +101,45 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 | Phone screens (comments section, filter, badge) | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |
 | Alerts when someone mentions you or replies | Not built yet (step 5). |
 | Comments on a markup shape | Comes with markup (step 3). |
+
+## Step 3: drawing on photos
+
+**How it works**
+
+- Table `photo_markups` (migration `0020_photo_markups.sql`). Each mark is one row of shape data:
+  - its kind: circle, arrow, pen line, box, text or numbered pin
+  - its color: red (the default), yellow, green, blue, white or black
+  - its size: thin, medium or thick
+  - its points, as fractions (0 to 1) of the upright photo
+  - its words, for text and pins
+
+  **The photo file is never touched.** A test checks the stored original is byte-for-byte the same after drawing.
+- **Who draws:** **photo_markups.create** ("Draw on photos"), on for Owner and Manager. Employees see drawings and comment on them but don't draw (JB's decision). An owner can switch drawing on for any role in Team & Roles.
+- **Removing marks:** people remove their own. **photo_markups.manage** (Owner by default) removes anyone's.
+- **Saved marks never change.** A mark can only be removed. Removed marks stay in the database (hidden) with who removed them and when. Editing is done by removing a mark and drawing a new one. The app's database login can only set the "removed" markers.
+- **Saving:** one Save sends every change from a drawing session at once (all or nothing). Each new mark carries its own id, so Save tapped twice never saves it twice. A photo can have up to 500 marks.
+- **Comments on a mark:** tap or click a drawing to select it, and the next comment is "about the red circle". Comments about a mark show "📍 About the red circle", and tapping that highlights the mark. The mark must be on the same photo, which the database checks.
+- **Website:** in the photo viewer:
+  - **✎ Draw** (for people who can draw) and **Hide drawings / Show drawings**.
+  - Zoom **−**, **100%** and **+**. You move around a zoomed photo with the scroll bars.
+  - The drawing tools: circle, arrow, pen, box, text, pin and remove. Six colors, three sizes, **Undo**, **Redo**, **Cancel** and **Save drawing**.
+  - Arrow keys don't change photo while you are drawing.
+- **Phone:** on the photo screen:
+  - Drawings show over the photo, with **Hide drawings / Show drawings**. Tapping a drawing selects it to comment on.
+  - **✎ Draw** opens a drawing screen with the same tools, colors, sizes, Undo and Redo. **Zoom** goes 1×, 2× or 3×, and **✋** moves around a zoomed photo.
+  - Cancel asks before throwing away unsaved marks.
+- **Offline:** marks already seen are kept (encrypted) and show without signal. **Saving a drawing needs a connection for now.** If Save fails, the drawing stays on screen to try again. Saving drawings offline is planned with step 5.
+- "Delete forever" of a photo also removes its marks.
+- The same drawing code is used on the website and the phone (`packages/photo-sync/src/markup.ts`). It can also produce an SVG of all marks, which step 5 uses for "share an annotated copy".
+
+**Real vs simulated**
+
+| Part | State |
+| --- | --- |
+| Table, walls, locked marks, removal kept for the record, purge, comment-on-mark link | Real, tested against PostgreSQL |
+| API: save, resend-safe, removal rules, permission switch, validation, walls, photo unchanged | Real, tested over HTTP (`apps/api/test/photo-markups.test.ts`, 9 tests) |
+| Drawing math, undo/redo, tap-to-select, safe SVG | Real, tested (`packages/photo-sync/test/markup.test.ts`, 7 tests) |
+| Website drawing, hide/show, comment on a mark | Real, tested in a simulated browser (`apps/web/src/App.test.tsx`). Not yet tried in a real browser by JB. |
+| Phone drawing screen and drawings on the photo screen | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** Touch drawing while zoomed is the part most likely to need adjusting. |
+| Saving drawings with no signal | Not built yet (step 5). |
 

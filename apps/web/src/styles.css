@@ -130,3 +130,17 @@ button.link.danger { color: var(--flag); }
 .composer textarea { width: 100%; box-sizing: border-box; }
 .composer .row { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .composer select { margin-right: auto; }
+
+/* Drawing on photos (step 3) */
+.mk-stage { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
+.mk-stage .full { display: block; }
+svg.marks { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.lb-image { overflow: auto; place-items: safe center; }
+.mk-zoom { max-width: 100%; }
+.markup-editor { display: grid; gap: 10px; justify-items: center; }
+.mk-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; background: var(--card); padding: 8px; border-radius: 10px; line-height: normal; }
+.mk-group { display: flex; gap: 4px; align-items: center; }
+.swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #8888; padding: 0; }
+.swatch.on { outline: 3px solid var(--accent); outline-offset: 1px; }
+.mk-viewbar { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; background: rgba(0,0,0,.6); padding: 6px; border-radius: 10px; }
+.about-mark { display: flex; gap: 6px; align-items: center; }

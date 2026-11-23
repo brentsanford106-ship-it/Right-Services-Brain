@@ -4,6 +4,8 @@ import type { Photo } from "@rsb/contracts";
 import { api, ApiRequestError, fetchImage } from "../lib/api";
 import { useCan, useOrgId } from "../lib/hooks";
 import { CommentsPanel } from "./comments";
+import { MarkupEditor, MarksSvg, markNames, useMarks } from "./markup";
+import { hitTest, type MarkupShape } from "@rsb/photo-sync";
 
 export type Filter = "all" | "before" | "during" | "after" | "flagged" | "comments";
 export const FILTERS: { value: Filter; label: string }[] = [
@@ -263,23 +265,34 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
   const canOriginal = useCan("photos.read_original");
   const canManage = useCan("photo_flags.manage");
   const canExport = useCan("photos.export");
+  const canDraw = useCan("photo_markups.create");
   const [note, setNote] = useState(p?.note ?? "");
   const [err, setErr] = useState<string | null>(null);
+  const [showMarks, setShowMarks] = useState(true);
+  const [drawing, setDrawing] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [picked, setPicked] = useState<string | null>(null); // a mark chosen to comment on
+  const marksQ = useMarks(p?.id ?? "", !!p);
+  const marks = marksQ.data?.items ?? [];
+  const names = markNames(marks as MarkupShape[]);
+  const markList = marks.map((m, i) => ({ id: m.id, name: names[i]! }));
 
   useEffect(() => setNote(p?.note ?? ""), [p?.id, p?.note]);
+  useEffect(() => { setDrawing(false); setZoom(1); setPicked(null); }, [p?.id]);
 
   const prev = useCallback(() => index > 0 && onIndex(index - 1), [index, onIndex]);
   const next = useCallback(() => index < items.length - 1 && onIndex(index + 1), [index, items.length, onIndex]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === "TEXTAREA") return;
+      if (["TEXTAREA", "INPUT", "SELECT"].includes((e.target as HTMLElement)?.tagName)) return;
+      if (drawing) return; // keys don't leave the drawing screen
       if (e.key === "Escape") onClose();
       if (e.key === "ArrowLeft") prev();
       if (e.key === "ArrowRight") next();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, prev, next]);
+  }, [onClose, prev, next, drawing]);
 
   const update = useMutation({
     mutationFn: (body: { flagged?: boolean; note?: string | null; stage?: string }) => api<Photo>(`/v1/orgs/${orgId}/photos/${p!.id}`, { method: "PATCH", body }),
@@ -319,9 +332,40 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
     <div className="lightbox" role="dialog" aria-modal="true" aria-label="Photo viewer">
       <div className="lb-image">
         <button className="lb-close" onClick={onClose} aria-label="Close">✕</button>
-        <button className="lb-nav left" onClick={prev} disabled={index === 0} aria-label="Previous photo">‹</button>
-        {p.hasPreview ? <AuthImage key={p.id} path={`/v1/orgs/${orgId}/photos/${p.id}/content`} alt={`${p.jobNumber} ${stageLabel(p.stage)} photo`} className={`full ${p.flagged ? "flagged" : ""}`} /> : <div className="imgph full">{p.uploadStatus === "pending" ? "The phone hasn't uploaded this file yet." : "No preview available (e.g. HEIC). Download the original."}</div>}
-        <button className="lb-nav right" onClick={next} disabled={index === items.length - 1} aria-label="Next photo">›</button>
+        <button className="lb-nav left" onClick={prev} disabled={drawing || index === 0} aria-label="Previous photo">‹</button>
+        {p.hasPreview ? (() => {
+          const img = <AuthImage key={p.id} path={`/v1/orgs/${orgId}/photos/${p.id}/content`} alt={`${p.jobNumber} ${stageLabel(p.stage)} photo`} className={`full ${p.flagged ? "flagged" : ""}`} />;
+          const w = p.widthPx ?? 0;
+          const h = p.heightPx ?? 0;
+          if (drawing && w && h) {
+            return <div className="mk-zoom" style={{ zoom }}><MarkupEditor key={p.id} photoId={p.id} saved={marks} w={w} h={h} imageEl={img} onDone={() => setDrawing(false)} /></div>;
+          }
+          return (
+            <div className="mk-stage" style={{ zoom }}>
+              {img}
+              {showMarks && w > 0 && h > 0 && marks.length > 0 && (
+                <MarksSvg marks={marks as MarkupShape[]} w={w} h={h} highlight={marks.findIndex((m) => m.id === picked)} cursor="pointer"
+                  onPointerDown={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const i = hitTest(marks as MarkupShape[], ((e.clientX - r.left) / (r.width || 1)) * w, ((e.clientY - r.top) / (r.height || 1)) * h, w, h, Math.max(18, Math.min(w, h) * 0.02));
+                    setPicked(i >= 0 ? marks[i]!.id : null);
+                  }} />
+              )}
+            </div>
+          );
+        })() : <div className="imgph full">{p.uploadStatus === "pending" ? "The phone hasn't uploaded this file yet." : "No preview available (e.g. HEIC). Download the original."}</div>}
+        <div className="mk-viewbar" role="group" aria-label="Photo view">
+          <button onClick={() => setZoom((z) => Math.max(1, z / 1.5))} disabled={zoom <= 1} aria-label="Zoom out">−</button>
+          <button onClick={() => setZoom(1)} disabled={zoom === 1} aria-label="Fit to screen">{Math.round(zoom * 100)}%</button>
+          <button onClick={() => setZoom((z) => Math.min(5, z * 1.5))} disabled={zoom >= 5} aria-label="Zoom in">+</button>
+          {!drawing && marks.length > 0 && (
+            <button aria-pressed={showMarks} onClick={() => setShowMarks((v) => !v)}>{showMarks ? `Hide drawings (${marks.length})` : `Show drawings (${marks.length})`}</button>
+          )}
+          {!drawing && canDraw && p.hasPreview && p.widthPx && (
+            <button className="primary" onClick={() => { setShowMarks(true); setPicked(null); setDrawing(true); }}>✎ Draw</button>
+          )}
+        </div>
+        <button className="lb-nav right" onClick={next} disabled={drawing || index === items.length - 1} aria-label="Next photo">›</button>
       </div>
       <aside className="lb-side">
         <div className="muted small">
@@ -370,7 +414,10 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
           </button>
         )}
         {err && <p className="error" role="alert">{err}</p>}
-        <CommentsPanel key={p.id} photoId={p.id} jobId={p.jobId} onChanged={async () => { await Promise.all(invalidate.map((k) => qc.invalidateQueries({ queryKey: k }))); }} />
+        <CommentsPanel key={p.id} photoId={p.id} jobId={p.jobId} marks={markList}
+          aboutMark={picked ? markList.find((m) => m.id === picked) ?? null : null} onClearMark={() => setPicked(null)}
+          onShowMark={(id) => { setShowMarks(true); setPicked(id); }}
+          onChanged={async () => { await Promise.all(invalidate.map((k) => qc.invalidateQueries({ queryKey: k }))); }} />
         {canExport && p.uploadStatus === "stored" && (
           <button onClick={() => void downloadPhotos(orgId, [p]).catch(() => setErr("Couldn't download this photo."))}>Download photo</button>
         )}

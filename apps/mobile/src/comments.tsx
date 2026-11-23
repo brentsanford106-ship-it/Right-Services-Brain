@@ -14,6 +14,7 @@ interface ServerComment {
   authorAvatarAt: string | null;
   body: string | null;
   mentions: { id: string; name: string }[];
+  markupId?: string | null;
   createdAt: string;
   editedAt: string | null;
   deletedAt: string | null;
@@ -33,7 +34,13 @@ const mentionsIn = (body: string, picked: Person[]) => [...new Set(picked.filter
  * and are sent by the sync queue. The last list seen is kept (encrypted) so comments can be read without signal.
  * Editing and deleting need a connection.
  */
-export function PhotoComments({ jobId, serverId, localId }: { jobId: string; serverId: string | null; localId: string | null }) {
+type MarkRef = { id: string; name: string };
+
+export function PhotoComments({ jobId, serverId, localId, marks = [], aboutMark = null, onClearMark, onShowMark }: {
+  jobId: string; serverId: string | null; localId: string | null;
+  /** Marks drawn on the photo, so a comment can be about one of them. */
+  marks?: MarkRef[]; aboutMark?: MarkRef | null; onClearMark?: () => void; onShowMark?: (id: string) => void;
+}) {
   const app = useApp();
   useCommentsVersion();
   const orgId = app.session?.orgId ?? "";
@@ -99,8 +106,9 @@ export function PhotoComments({ jobId, serverId, localId }: { jobId: string; ser
       await app.comments.add({
         orgId, jobId, photoServerId: serverId, photoLocalId: serverId ? null : localId,
         parentId: replyTo?.serverId ?? null, parentLocalId: replyTo?.serverId ? null : replyTo?.localId ?? null,
-        body: text, mentionIds: mentionsIn(text, picked),
+        body: text, mentionIds: mentionsIn(text, picked), markupId: replyTo ? null : aboutMark?.id ?? null,
       });
+      if (!replyTo) onClearMark?.();
       setBody("");
       setPicked([]);
       setReplyTo(null);
@@ -158,6 +166,7 @@ export function PhotoComments({ jobId, serverId, localId }: { jobId: string; ser
         <Text style={{ color: C.text, fontWeight: "600" }}>
           {c.author}{c.mine ? " (you)" : ""} <Text style={[s.muted, { fontWeight: "400" }]}>{when(c.createdAt)}{c.editedAt && !c.deletedAt ? " · edited" : ""}</Text>
         </Text>
+        {c.markupId && !c.deletedAt ? <AboutMark id={c.markupId} marks={marks} onShowMark={onShowMark} /> : null}
         {c.deletedAt ? (
           <Text style={[s.muted, { fontStyle: "italic" }]}>Comment deleted{c.deletedBy ? ` by ${c.deletedBy}` : ""}</Text>
         ) : editing?.id === c.id ? (
@@ -189,6 +198,7 @@ export function PhotoComments({ jobId, serverId, localId }: { jobId: string; ser
         <Text style={{ color: C.text, fontWeight: "600" }}>
           You <Text style={[s.muted, { fontWeight: "400" }]}>{p.needsAttention ? "· not sent" : "· waiting to send"}</Text>
         </Text>
+        {p.markupId ? <AboutMark id={p.markupId} marks={marks} onShowMark={onShowMark} /> : null}
         <Text style={{ color: C.text }}>{p.body}</Text>
         {p.needsAttention ? (
           <>
@@ -233,6 +243,13 @@ export function PhotoComments({ jobId, serverId, localId }: { jobId: string; ser
 
       {canComment ? (
         <View style={{ gap: 8 }}>
+          {aboutMark && !replyTo ? (
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              <Text style={s.muted}>📍 Commenting on the {aboutMark.name}</Text>
+              <Link label="Not about it" onPress={() => onClearMark?.()} />
+            </View>
+          ) : null}
+          {!aboutMark && !replyTo && marks.length > 0 ? <Text style={s.muted}>Tip: tap a drawing on the photo to comment on it.</Text> : null}
           {replyTo ? (
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
               <Text style={s.muted}>Replying to {replyTo.name}</Text>
@@ -270,6 +287,11 @@ export function PhotoComments({ jobId, serverId, localId }: { jobId: string; ser
       ) : null}
     </View>
   );
+}
+
+function AboutMark({ id, marks, onShowMark }: { id: string; marks: MarkRef[]; onShowMark?: (id: string) => void }) {
+  const m = marks.find((x) => x.id === id);
+  return m ? <Link label={`📍 About the ${m.name}`} onPress={() => onShowMark?.(m.id)} /> : <Text style={s.muted}>📍 About a mark that was removed</Text>;
 }
 
 function Link({ label, onPress, danger }: { label: string; onPress: () => void; danger?: boolean }) {

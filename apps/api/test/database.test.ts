@@ -55,7 +55,7 @@ describe("runtime role", () => {
 });
 
 describe("row-level security", () => {
-  const tenantTables = ["customers", "jobs", "job_assignments", "photos", "photo_flags", "photo_comments", "photo_comment_revisions", "photo_comment_mentions", "receipts", "vehicles",
+  const tenantTables = ["customers", "jobs", "job_assignments", "photos", "photo_flags", "photo_comments", "photo_comment_revisions", "photo_comment_mentions", "photo_markups", "receipts", "vehicles",
     "vehicle_assignments", "mileage_records", "maintenance_records", "roles", "role_permissions", "membership_roles"];
 
   it.each(tenantTables)("%s: no rows are visible without an organization context", async (table) => {

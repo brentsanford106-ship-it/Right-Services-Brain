@@ -37,10 +37,11 @@ interface CommentRow {
   deleted_at: Date | null;
   deleted_by: string | null;
   mentions: { id: string; name: string }[] | null;
+  markup_id: string | null;
 }
 
 const COMMENT_SELECT = `
-  SELECT c.id, c.photo_id, c.parent_id, c.author_membership_id, au.display_name AS author, am.avatar_updated_at AS author_avatar_at,
+  SELECT c.id, c.photo_id, c.parent_id, c.markup_id, c.author_membership_id, au.display_name AS author, am.avatar_updated_at AS author_avatar_at,
          c.body, c.created_at, c.edited_at, c.deleted_at, du.display_name AS deleted_by,
          (SELECT json_agg(json_build_object('id', mm.id, 'name', mu.display_name) ORDER BY mu.display_name)
             FROM photo_comment_mentions x
@@ -66,6 +67,7 @@ const toComment = (r: CommentRow, ctx: OrgContext): PhotoComment => {
     authorAvatarAt: r.author_avatar_at?.toISOString() ?? null,
     body: deleted ? null : r.body,
     mentions: deleted ? [] : (r.mentions ?? []),
+    markupId: r.markup_id,
     createdAt: r.created_at.toISOString(),
     editedAt: r.edited_at?.toISOString() ?? null,
     deletedAt: r.deleted_at?.toISOString() ?? null,
@@ -137,12 +139,16 @@ export async function commentRoutes(app: FastifyInstance, { db }: RouteDeps): Pr
         if (!rows[0]) throw new HttpError("validation_failed", "The comment you are replying to is not on this photo.", [{ path: "parentId", issue: "not found" }]);
         if (rows[0].parent_id) throw new HttpError("validation_failed", "Reply to the main comment instead (replies are one level deep).", [{ path: "parentId", issue: "is a reply" }]);
       }
+      if (body.markupId) {
+        const { rowCount } = await tx.query("SELECT 1 FROM photo_markups WHERE id = $1 AND photo_id = $2", [body.markupId, photoId]);
+        if (!rowCount) throw new HttpError("validation_failed", "That mark is not on this photo.", [{ path: "markupId", issue: "not found" }]);
+      }
       const mentions = await checkMentions(tx, ctx, photo.job_id, body.mentionIds);
       const { id, created } = await insertIdempotent(
         tx, "photo_comments", body.clientRef, ctx.membershipId,
-        `INSERT INTO photo_comments (organization_id, photo_id, parent_id, author_membership_id, body, client_ref)
-         VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (organization_id, client_ref) DO NOTHING RETURNING id`,
-        [ctx.orgId, photoId, body.parentId ?? null, ctx.membershipId, body.body, body.clientRef],
+        `INSERT INTO photo_comments (organization_id, photo_id, parent_id, author_membership_id, body, client_ref, markup_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (organization_id, client_ref) DO NOTHING RETURNING id`,
+        [ctx.orgId, photoId, body.parentId ?? null, ctx.membershipId, body.body, body.clientRef, body.markupId ?? null],
       );
       if (created) {
         await addMentions(tx, ctx, id, mentions);

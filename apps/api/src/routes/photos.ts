@@ -51,6 +51,7 @@ interface PhotoRow {
   open_flags: number;
   comment_count: number;
   last_comment_at: Date | null;
+  markup_count: number;
   latitude: number | null;
   longitude: number | null;
   width_px: number | null;
@@ -65,7 +66,8 @@ const PHOTO_SELECT = `SELECT p.id, p.job_id, j.job_number, j.site_name, p.stage,
                              (p.preview_storage_key IS NOT NULL) AS has_preview,
                              (SELECT count(*)::int FROM photo_flags f WHERE f.organization_id = p.organization_id AND f.photo_id = p.id AND f.status = 'open') AS open_flags,
                              (SELECT count(*)::int FROM photo_comments c WHERE c.organization_id = p.organization_id AND c.photo_id = p.id AND c.deleted_at IS NULL) AS comment_count,
-                             (SELECT max(c.created_at) FROM photo_comments c WHERE c.organization_id = p.organization_id AND c.photo_id = p.id AND c.deleted_at IS NULL) AS last_comment_at
+                             (SELECT max(c.created_at) FROM photo_comments c WHERE c.organization_id = p.organization_id AND c.photo_id = p.id AND c.deleted_at IS NULL) AS last_comment_at,
+                             (SELECT count(*)::int FROM photo_markups k WHERE k.organization_id = p.organization_id AND k.photo_id = p.id AND k.removed_at IS NULL) AS markup_count
                         FROM photos p
                         JOIN jobs j ON j.organization_id = p.organization_id AND j.id = p.job_id
                         JOIN organization_memberships m ON m.organization_id = p.organization_id AND m.id = p.uploaded_by_membership_id
@@ -100,6 +102,7 @@ const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
   openFlags: r.open_flags,
   commentCount: r.comment_count,
   lastCommentAt: r.last_comment_at?.toISOString() ?? null,
+  markupCount: r.markup_count,
   latitude: r.latitude,
   longitude: r.longitude,
   widthPx: r.width_px,

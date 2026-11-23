@@ -27,6 +27,8 @@ export interface PendingComment {
   parentLocalId: string | null;
   body: string;
   mentionIds: string[];
+  /** The mark on the photo this comment is about (missing on comments saved by older app versions). */
+  markupId?: string | null;
   createdAt: string;
   attempts: number;
   nextAttemptAt: number;
@@ -36,7 +38,7 @@ export interface PendingComment {
 }
 
 export interface CommentApi {
-  createComment(orgId: string, photoId: string, body: { clientRef: string; body: string; parentId?: string | null; mentionIds: string[] }): Promise<{ id: string }>;
+  createComment(orgId: string, photoId: string, body: { clientRef: string; body: string; parentId?: string | null; mentionIds: string[]; markupId?: string | null }): Promise<{ id: string }>;
 }
 
 const name = (id: string) => `pc-${id}`;
@@ -116,7 +118,7 @@ export class CommentOutbox {
 
   async add(input: {
     orgId: string; jobId: string; photoServerId: string | null; photoLocalId: string | null;
-    parentId?: string | null; parentLocalId?: string | null; body: string; mentionIds?: string[];
+    parentId?: string | null; parentLocalId?: string | null; body: string; mentionIds?: string[]; markupId?: string | null;
   }): Promise<PendingComment> {
     const body = input.body.trim();
     if (!body) throw new Error("Write something first.");
@@ -127,7 +129,7 @@ export class CommentOutbox {
     const c: PendingComment = {
       localId, orgId: input.orgId, jobId: input.jobId, photoServerId: input.photoServerId, photoLocalId: input.photoLocalId,
       parentId: input.parentId ?? null, parentLocalId: input.parentLocalId ?? null, body,
-      mentionIds: [...new Set(input.mentionIds ?? [])].slice(0, 20), createdAt: new Date(this.now()).toISOString(),
+      mentionIds: [...new Set(input.mentionIds ?? [])].slice(0, 20), markupId: input.markupId ?? null, createdAt: new Date(this.now()).toISOString(),
       attempts: 0, nextAttemptAt: 0, lastError: null, needsAttention: false,
     };
     return this.exclusive(async () => {
@@ -201,7 +203,7 @@ export class CommentOutbox {
         continue;
       }
       try {
-        const res = await api.createComment(c.orgId, photoId, { clientRef: c.localId, body: c.body, parentId, mentionIds: c.mentionIds });
+        const res = await api.createComment(c.orgId, photoId, { clientRef: c.localId, body: c.body, parentId, mentionIds: c.mentionIds, ...(c.markupId ? { markupId: c.markupId } : {}) });
         // Waiting replies to this comment now know its server id (saved first, so a restart can't lose the link).
         for (const r of this.all().filter((x) => x.parentLocalId === c.localId)) await this.save({ ...r, parentId: res.id, parentLocalId: null });
         await this.drop(c.localId);

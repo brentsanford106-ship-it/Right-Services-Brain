@@ -172,6 +172,8 @@ export const Photo = z.object({
   /** Comments and replies that are not deleted. */
   commentCount: z.number().int(),
   lastCommentAt: z.string().nullable(),
+  /** Marks drawn on the photo (not removed). */
+  markupCount: z.number().int(),
   latitude: z.number().nullable(),
   longitude: z.number().nullable(),
   widthPx: z.number().int().nullable(),
@@ -266,6 +268,8 @@ export const CreatePhotoCommentRequest = z.strictObject({
   parentId: Uuid.nullable().optional(),
   /** People @mentioned. Each must be someone who can see the job. */
   mentionIds: z.array(Uuid).max(20).default([]),
+  /** Comment on one mark drawn on this photo. */
+  markupId: Uuid.nullable().optional(),
 });
 export type CreatePhotoCommentRequest = z.infer<typeof CreatePhotoCommentRequest>;
 export const UpdatePhotoCommentRequest = z.strictObject({ body: CommentBody, mentionIds: z.array(Uuid).max(20).default([]) });
@@ -280,6 +284,8 @@ export const PhotoComment = z.object({
   /** null when the comment was deleted ("Comment deleted"). */
   body: z.string().nullable(),
   mentions: z.array(z.object({ id: Uuid, name: z.string() })),
+  /** The mark this comment is about, if any. */
+  markupId: Uuid.nullable(),
   createdAt: z.string(),
   editedAt: z.string().nullable(),
   deletedAt: z.string().nullable(),
@@ -290,6 +296,50 @@ export const PhotoComment = z.object({
   canDelete: z.boolean(),
 });
 export type PhotoComment = z.infer<typeof PhotoComment>;
+// ---------------------------------------------------------------- drawing on photos (step 3)
+export const MarkupKind = z.enum(["circle", "arrow", "pen", "rect", "text", "pin"]);
+export const MarkupColor = z.enum(["red", "yellow", "green", "blue", "white", "black"]);
+const Fraction = z.number().finite().min(0).max(1);
+export const MarkupShapeInput = z
+  .strictObject({
+    clientRef: Uuid,
+    kind: MarkupKind,
+    color: MarkupColor,
+    size: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    points: z.array(z.tuple([Fraction, Fraction])).min(1).max(2000),
+    label: z.string().trim().max(200).nullable().optional(),
+  })
+  .superRefine((s, ctx) => {
+    const n = s.points.length;
+    const ok = s.kind === "pen" ? n >= 2 : s.kind === "text" || s.kind === "pin" ? n === 1 : n === 2;
+    if (!ok) ctx.addIssue({ code: "custom", path: ["points"], message: `wrong number of points for a ${s.kind}` });
+    const label = s.label?.trim() ?? "";
+    if (s.kind === "text" && !label) ctx.addIssue({ code: "custom", path: ["label"], message: "text needs words" });
+    if (s.kind !== "text" && s.kind !== "pin" && label) ctx.addIssue({ code: "custom", path: ["label"], message: "only text and pins have words" });
+  });
+export const MarkupChangesRequest = z
+  .strictObject({
+    add: z.array(MarkupShapeInput).max(200).default([]),
+    remove: z.array(Uuid).max(500).default([]),
+  })
+  .refine((v) => v.add.length + v.remove.length > 0, { message: "nothing to save" });
+export type MarkupChangesRequest = z.infer<typeof MarkupChangesRequest>;
+export const PhotoMarkup = z.object({
+  id: Uuid,
+  kind: MarkupKind,
+  color: MarkupColor,
+  size: z.number().int(),
+  points: z.array(z.tuple([z.number(), z.number()])),
+  label: z.string().nullable(),
+  authorId: Uuid,
+  author: z.string(),
+  createdAt: z.string(),
+  mine: z.boolean(),
+  /** For hiding buttons only; the server decides. */
+  canRemove: z.boolean(),
+});
+export type PhotoMarkup = z.infer<typeof PhotoMarkup>;
+
 export const JobPerson = z.object({ id: Uuid, name: z.string(), avatarAt: z.string().nullable(), me: z.boolean() });
 export type JobPerson = z.infer<typeof JobPerson>;
 

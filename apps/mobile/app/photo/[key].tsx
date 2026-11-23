@@ -1,6 +1,8 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
-import { Stack, router, useLocalSearchParams } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
+import { hitTest } from "@rsb/photo-sync";
+import { MarksLayer, fitRect, markNames, useMarks } from "../../src/markup";
 import { NOTE_MAX, type Stage } from "@rsb/photo-sync";
 import { useApp, useQueueVersion, useSyncStatus } from "../../src/state";
 import { LocalImage, PersonBadge, ServerImage, mergeGallery, type ServerPhoto } from "../../src/photos";
@@ -22,6 +24,8 @@ export default function Review() {
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [showMarks, setShowMarks] = useState(true);
+  const [picked, setPicked] = useState<string | null>(null); // a mark chosen to comment on
 
   useEffect(() => {
     void app.cache.get<ServerPhoto[]>(`photos-${jobId}`).then((v) => setServer(v ?? []));
@@ -34,6 +38,11 @@ export default function Review() {
   useEffect(() => {
     if (item && draft === null) setDraft(item.note ?? "");
   }, [item, draft]);
+
+  const serverId = item?.server?.id ?? item?.local?.serverId ?? null;
+  const { marks, reload: reloadMarks } = useMarks(serverId);
+  // Back from the drawing screen: show what was saved.
+  useFocusEffect(useCallback(() => { void reloadMarks(); }, [reloadMarks]));
 
   // A typed note must never be lost just because someone left the screen without tapping "Save note".
   const pendingNote = useRef<(() => void) | null>(null);
@@ -77,6 +86,13 @@ export default function Review() {
   const noteChanged = (draft ?? "") !== (item.note ?? "");
   const saveNote = () => change({ note: (draft ?? "").trim() || null });
   const imgH = Math.min(height * 0.55, width * 1.33);
+  // Drawings are measured against the display copy on the server. Photos still only on this phone can't have any yet.
+  const pw = item.server?.widthPx ?? 0;
+  const ph = item.server?.heightPx ?? 0;
+  const fit = fitRect(width - (item.flagged ? 8 : 0), imgH, pw, ph);
+  const canDraw = app.can("photo_markups.create") && !!serverId && !!item.server?.hasPreview && pw > 0 && ph > 0;
+  const names = markNames(marks);
+  const markList = marks.map((m, i) => ({ id: m.id, name: names[i]! }));
   const own = !item.server || (item.server.uploadedByMe ?? item.server.uploadedBy === app.session?.displayName);
   const canEdit = own ? app.can("photos.upload") : app.can("photo_flags.manage");
   pendingNote.current = noteChanged && canEdit ? () => void saveNote() : null;
@@ -92,7 +108,29 @@ export default function Review() {
           ) : item.server ? (
             <ServerImage photoId={item.server.id} style={{ width: "100%", height: imgH }} contain />
           ) : null}
+          {showMarks && marks.length > 0 && pw && ph ? (
+            <Pressable
+              style={{ position: "absolute", left: fit.x, top: fit.y, width: fit.w, height: fit.h }}
+              accessibilityLabel={`${marks.length} drawing${marks.length === 1 ? "" : "s"} on this photo. Tap one to comment on it.`}
+              onPress={(e) => {
+                const i = hitTest(marks, e.nativeEvent.locationX, e.nativeEvent.locationY, fit.w, fit.h, 24);
+                setPicked(i >= 0 ? marks[i]!.id : null);
+              }}
+            >
+              <MarksLayer marks={marks} w={pw} h={ph} width={fit.w} height={fit.h} highlight={marks.findIndex((m) => m.id === picked)} />
+            </Pressable>
+          ) : null}
         </View>
+        {marks.length > 0 || canDraw ? (
+          <View style={{ flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12 }}>
+            {marks.length > 0 ? (
+              <Button title={showMarks ? `Hide drawings (${marks.length})` : `Show drawings (${marks.length})`} kind="secondary" style={{ flex: 1 }} onPress={() => setShowMarks((v) => !v)} />
+            ) : null}
+            {canDraw ? (
+              <Button title="✎ Draw" style={{ flex: 1 }} onPress={() => router.push({ pathname: "/photo/draw", params: { photoId: serverId!, w: String(pw), h: String(ph) } })} />
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={{ padding: 16, gap: 16 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -137,7 +175,9 @@ export default function Review() {
             ) : null}
           </View>
 
-          <PhotoComments key={item.key} jobId={jobId} serverId={item.server?.id ?? item.local?.serverId ?? null} localId={item.local && !item.local.remoteOnly ? item.local.localId : null} />
+          <PhotoComments key={item.key} jobId={jobId} serverId={serverId} localId={item.local && !item.local.remoteOnly ? item.local.localId : null}
+            marks={markList} aboutMark={picked ? markList.find((m) => m.id === picked) ?? null : null} onClearMark={() => setPicked(null)}
+            onShowMark={(id) => { setShowMarks(true); setPicked(id); }} />
 
           <View style={[s.card, { gap: 4 }]}>
             <Text style={s.muted}>Job: {item.local?.jobNumber ?? item.server?.jobNumber}</Text>
