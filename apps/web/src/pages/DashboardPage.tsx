@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import type { DashboardResponse, Photo, PhotoIssue } from "@rsb/contracts";
 import { useCan, useOrgId, useOrgQuery } from "../lib/hooks";
+import { AlertsSection } from "../components/alerts";
 import { IssueList } from "../components/issues";
 import { Card, Status } from "../components/ui";
 import { Lightbox, PhotoGrid } from "../components/photos";
@@ -32,6 +33,7 @@ export function DashboardPage() {
           </div>
         )}
       </Status>
+      <AlertsSection />
       {(mine.data?.items?.length ?? 0) > 0 && (
         <section aria-label="Assigned to me">
           <h2>🔧 Assigned to me ({mine.data!.items.length})</h2>

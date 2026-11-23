@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App";
@@ -352,10 +352,15 @@ describe("web dashboard", () => {
       return json(org);
     }));
     renderApp("/orgs/o");
+    // The Overview page has its own "Your alerts" section with the same alerts.
+    const section = await screen.findByRole("region", { name: "Your alerts" });
+    expect(await within(section).findByRole("heading", { name: "🔔 Your alerts (2 new)" })).toBeTruthy();
+    expect(within(section).getByText("Morgan Manager assigned you “Missing bolt” on HP-1001")).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Alerts, 2 new" }));
-    expect(screen.getByText("Morgan Manager assigned you “Missing bolt” on HP-1001")).toBeTruthy();
-    expect(screen.getByText("“Look @Eli Employee”")).toBeTruthy();
-    fireEvent.click(screen.getByText("Morgan Manager assigned you “Missing bolt” on HP-1001"));
+    const menu = screen.getByRole("dialog", { name: "Alerts" });
+    expect(within(menu).getByText("Morgan Manager assigned you “Missing bolt” on HP-1001")).toBeTruthy();
+    expect(within(menu).getByText("“Look @Eli Employee”")).toBeTruthy();
+    fireEvent.click(within(menu).getByText("Morgan Manager assigned you “Missing bolt” on HP-1001"));
     await waitFor(() => expect(reads).toEqual([{ ids: ["n1"] }]));
     expect(await screen.findByRole("heading", { name: /HP-1001/ })).toBeTruthy();
     expect(await screen.findByRole("button", { name: "Alerts, 1 new" })).toBeTruthy();
