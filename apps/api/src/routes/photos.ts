@@ -28,6 +28,8 @@ import { processUpload, sha256 } from "../lib/image.js";
 import { photoKey } from "../storage/types.js";
 import { purgeDeletedPhoto, removeFiles } from "../lib/purge.js";
 import type { RouteDeps } from "./index.js";
+import sharp from "sharp";
+import { marksToSvg, type MarkupShape } from "@rsb/photo-sync";
 
 interface PhotoRow {
   id: string;
@@ -301,10 +303,37 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
         ctx.require("photos.read_original");
         await recordAudit(tx, ctx, "photo.original_downloaded", "photo", photoId);
       }
+      // A copy with the drawings on it is a photo leaving the app: it needs "share/download" and is always audited.
+      let marks: MarkupShape[] = [];
+      if (variant === "annotated") {
+        ctx.require("photos.export");
+        const { rows } = await tx.query<MarkupShape>(
+          "SELECT kind, color, size, points, label FROM photo_markups WHERE photo_id = $1 AND removed_at IS NULL ORDER BY created_at, id",
+          [photoId],
+        );
+        marks = rows;
+        await recordAudit(tx, ctx, "photo.exported", "photo", photoId, { channel: "annotated_copy", marks: marks.length });
+      }
       const key = variant === "original" ? p.storage_key : p.preview_storage_key;
       if (!key) throw notFound();
-      return { key, contentType: variant === "original" ? p.content_type : "image/jpeg" };
+      return { key, marks, contentType: variant === "original" ? p.content_type : "image/jpeg" };
     });
+    if (variant === "annotated") {
+      const base = await storage.get(file.key);
+      if (!base) throw notFound();
+      // Drawn over the display copy, made fresh each time and never stored. Metadata (like location) is left out.
+      const img = sharp(base);
+      const { width = 0, height = 0 } = await img.metadata();
+      const out = file.marks.length && width && height
+        ? await img.composite([{ input: Buffer.from(marksToSvg(file.marks, width, height)), top: 0, left: 0 }]).jpeg({ quality: 88 }).toBuffer()
+        : await img.jpeg({ quality: 88 }).toBuffer();
+      return reply
+        .header("content-type", "image/jpeg")
+        .header("content-disposition", `inline; filename="${photoId}-marked-up.jpg"`)
+        .header("cache-control", "private, no-store")
+        .header("cross-origin-resource-policy", "same-site")
+        .send(out);
+    }
     // Small gallery thumbnail. Photos uploaded before thumbnails existed fall back to the preview.
     const data = (variant === "thumb" ? await storage.get(thumbKeyFor(file.key)) : null) ?? (await storage.get(file.key));
     if (!data) throw notFound();

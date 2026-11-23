@@ -322,6 +322,20 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
     onError: () => setErr("Couldn't delete this photo."),
   });
 
+  // A copy with the drawings on it, made by the server (and recorded there). The photo itself never changes.
+  const downloadMarked = async () => {
+    try {
+      const url = await fetchImage(`/v1/orgs/${orgId}/photos/${p!.id}/content?variant=annotated`);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${p!.jobNumber}-${p!.capturedAt.replace(/[:.]/g, "-")}-marked-up.jpg`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      setErr("The copy with drawings couldn't be downloaded.");
+    }
+  };
+
   const downloadOriginal = async () => {
     try {
       const url = await fetchImage(`/v1/orgs/${orgId}/photos/${p!.id}/content?variant=original`);
@@ -433,6 +447,9 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
           onChanged={async () => { await Promise.all(invalidate.map((k) => qc.invalidateQueries({ queryKey: k }))); }} />
         {canExport && p.uploadStatus === "stored" && (
           <button onClick={() => void downloadPhotos(orgId, [p]).catch(() => setErr("Couldn't download this photo."))}>Download photo</button>
+        )}
+        {canExport && p.uploadStatus === "stored" && p.hasPreview && marks.length > 0 && (
+          <button onClick={() => void downloadMarked()}>Download with drawings</button>
         )}
         {p.canDelete && (
           <button

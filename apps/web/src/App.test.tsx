@@ -197,7 +197,7 @@ describe("web dashboard", () => {
   });
   it("drawing: shows saved marks, hide/show, draw an arrow, undo, save sends only the change, comment on a mark", async () => {
     session.set("x.y.z");
-    const org = { organization: { id: "o", name: "Demo Co", slug: "demo" }, membershipId: "m", roles: ["manager"], permissions: ["org.read", "jobs.read_all", "photo_comments.create", "photo_markups.create"] };
+    const org = { organization: { id: "o", name: "Demo Co", slug: "demo" }, membershipId: "m", roles: ["manager"], permissions: ["org.read", "jobs.read_all", "photo_comments.create", "photo_markups.create", "photos.export"] };
     const job = { id: "j1", jobNumber: "HP-1001", title: "Pump island (DEMO)", status: "active", siteName: null, siteAddress: null, customerName: null, scheduledStart: null, scheduledEnd: null, assignees: null };
     const photo = { jobId: "j1", jobNumber: "HP-1001", siteName: null, stage: "during", note: null, flagged: false, flaggedAt: null, uploadStatus: "stored", openFlags: 0, latitude: null, longitude: null, widthPx: 1000, heightPx: 750, hasPreview: true, storedAt: null, captureSource: "in_app_camera", uploadedByMe: false, canDelete: false, capturedAtKnown: true, photographerAvatarAt: null, photographerId: "eli", photographer: "Eli Employee", uploadedBy: "Eli Employee", takenByMe: false, lastCommentAt: null, commentCount: 0, markupCount: 1, id: "p1", capturedAt: "2026-11-10T09:00:00Z" };
     const saved = { id: "k1", kind: "circle", color: "red", size: 2, points: [[0.1, 0.1], [0.3, 0.3]], label: null, authorId: "m", author: "Morgan Manager", createdAt: "2026-11-10T09:05:00Z", mine: true, canRemove: true };
@@ -250,6 +250,10 @@ describe("web dashboard", () => {
     expect(sent.add).toHaveLength(1);
     expect(sent.add[0]).toMatchObject({ kind: "arrow", color: "red", points: [[0.5, 0.5], [0.8, 0.7]] });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Save drawing" })).toBeNull()); // back to viewing
+    // A copy with the drawings on it comes from the server (which records it).
+    const fetches = (fetch as unknown as { mock: { calls: [string][] } }).mock.calls;
+    fireEvent.click(screen.getByRole("button", { name: "Download with drawings" }));
+    await waitFor(() => expect(fetches.some(([u]) => u.endsWith("/photos/p1/content?variant=annotated"))).toBe(true));
   });
   it("issues: to-fix badge and filter, job Issues list, approve a fix, and an employee reports an issue without assigning it", async () => {
     session.set("x.y.z");

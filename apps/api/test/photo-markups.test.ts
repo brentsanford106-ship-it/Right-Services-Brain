@@ -167,4 +167,43 @@ describe("drawing on photos", () => {
       await admin.end();
     }
   });
+  it("a marked-up copy for sharing: drawings burned into a fresh JPEG, audited, the stored photo unchanged, walls kept", async () => {
+    const photo = await newPhoto(true);
+    expect((await save("dev-morgan-manager", photo, { add: [{ ...circle(), size: 3 }, { clientRef: uuid(), kind: "text", color: "red", size: 3, points: [[0.5, 0.8]], label: "<script>x</script>" }] })).status).toBe(200);
+    const before = await t.as("dev-morgan-manager").raw(`${A}/photos/${photo}/content?variant=original`);
+    const plain = await t.as("dev-eli-employee").raw(`${A}/photos/${photo}/content`);
+    const marked = await t.as("dev-eli-employee").raw(`${A}/photos/${photo}/content?variant=annotated`);
+    expect(marked.status).toBe(200);
+    expect(marked.headers["content-type"]).toBe("image/jpeg");
+    expect(String(marked.headers["content-disposition"])).toContain("marked-up");
+    const [a, b] = await Promise.all([sharp(plain.data).raw().toBuffer({ resolveWithObject: true }), sharp(marked.data).raw().toBuffer({ resolveWithObject: true })]);
+    expect([b.info.width, b.info.height]).toEqual([a.info.width, a.info.height]);
+    // The circle's left edge (x = 10%, y = 30%) is now red; a far corner is unchanged grey.
+    const px = (img: typeof a, fx: number, fy: number) => {
+      const o = (Math.round(fy * img.info.height) * img.info.width + Math.round(fx * img.info.width)) * img.info.channels;
+      return [img.data[o]!, img.data[o + 1]!, img.data[o + 2]!];
+    };
+    const [r, g] = px(b, 0.1, 0.3);
+    expect(r).toBeGreaterThan(150);
+    expect(g).toBeLessThan(120);
+    expect(Math.abs(px(b, 0.98, 0.02)[0]! - px(a, 0.98, 0.02)[0]!)).toBeLessThan(12);
+    expect((await sharp(marked.data).metadata()).exif).toBeUndefined();
+    // Stored files are untouched.
+    const after = await t.as("dev-morgan-manager").raw(`${A}/photos/${photo}/content?variant=original`);
+    expect(Buffer.compare(before.data, after.data)).toBe(0);
+    const admin = await adminClient();
+    try {
+      const { rows } = await admin.query("SELECT metadata FROM audit_events WHERE action = 'photo.exported' AND target_id = $1", [photo]);
+      expect(rows.map((x) => x.metadata)).toEqual([{ channel: "annotated_copy", marks: 2 }]);
+      // Walls: someone not on the job can't get it; without "share or download" nobody gets it.
+      expect((await t.as("dev-ezra-field").raw(`${A}/photos/${photo}/content?variant=annotated`)).status).toBe(404);
+      expect((await t.as("dev-riley-owner").raw(`${A}/photos/${photo}/content?variant=annotated`)).status).toBe(404);
+      await admin.query(`DELETE FROM role_permissions rp USING roles r WHERE rp.role_id = r.id AND r.organization_id = $1 AND r.key = 'employee' AND rp.permission_key = 'photos.export'`, [ORG_A]);
+      expect((await t.as("dev-eli-employee").raw(`${A}/photos/${photo}/content?variant=annotated`)).status).toBe(403);
+    } finally {
+      await admin.query(`INSERT INTO role_permissions (organization_id, role_id, permission_key)
+        SELECT organization_id, id, 'photos.export' FROM roles WHERE organization_id = $1 AND key = 'employee' ON CONFLICT DO NOTHING`, [ORG_A]);
+      await admin.end();
+    }
+  });
 });

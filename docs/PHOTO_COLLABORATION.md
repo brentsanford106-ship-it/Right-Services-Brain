@@ -11,7 +11,7 @@ It is built in six steps, each its own pull request, tested on a real iPhone bef
 | 2 | Comments and replies, @mentions, edit history, offline | Built and tested automatically, **not yet tested on an iPhone** |
 | 3 | Markup (circle, arrow, pen, box, text, pin), show/hide, zoom | Built and tested automatically, **not yet tested on an iPhone** |
 | 4 | Issues: assign, In Progress, follow-up photo, send for review, approve, send back, reopen, job Issues tab, To Fix list, employee Report issue | Built and tested automatically, **not yet tested on an iPhone** |
-| 5 | In-app alerts, per-person alert settings, offline polish, sharing an annotated copy | 5a alerts and settings: built and tested automatically, **not yet tested on an iPhone**. 5b offline drawings and issue changes: built and tested automatically, **not yet tested on an iPhone**. 5c sharing: in progress |
+| 5 | In-app alerts, per-person alert settings, offline polish, sharing an annotated copy | 5a alerts and settings: built and tested automatically, **not yet tested on an iPhone**. 5b offline drawings and issue changes: built and tested automatically, **not yet tested on an iPhone**. 5c sharing a marked-up copy: built and tested automatically, **not yet tested on an iPhone** |
 | 6 | Company-wall tests for everything new, full acceptance run on iPhone and web | Not started |
 
 JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the paid Apple account and a real build); employees comment, reply and send fixes for approval but don't draw; employees can report issues (they go to the job's Issues list unassigned); every fix needs a manager's approval; keep In Progress, profile pictures, sort by photographer, alert settings and photo-library import.
@@ -245,4 +245,22 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 | Waiting drawings shown on the photo | Real logic, tested (`packages/photo-sync/test/markup.test.ts`) |
 | Server side (resend-safe adds, removals, issue `expectedStatus` check) | Real, tested over HTTP (step 3 and step 4 tests) |
 | Phone screens (Saved on this phone, waiting notes, Try again / Discard, Uploads count) | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone** (needs a real build with Airplane Mode). |
+
+## Step 5c: sharing a copy with the drawings on it
+
+**How it works**
+
+- `GET /photos/:id/content?variant=annotated` makes a fresh JPEG: the display copy with the current drawings burned in, using the same drawing code as the screens (`marksToSvg`). It's **made on request and never stored**. The stored photo and original never change (a test checks the original byte for byte). Location and other photo details are not in the copy.
+- It needs **"Share or download photos"** (photos.export) and the usual job access. Every copy is recorded in the activity log as `photo.exported` with `channel: "annotated_copy"` and the number of marks.
+- **Website:** **Download with drawings** in the photo viewer (when the photo has drawings).
+- **Phone:** **Share** on a photo with drawings asks **With drawings** or **Photo only**, then opens the iPhone share sheet. The temporary file is deleted right after, as for normal sharing.
+- Words in text marks are drawn with the server's fonts. On the Azure server these may look slightly different from the app until a font is added to the server image (to check when hosting is set up).
+
+**Real vs simulated**
+
+| Part | State |
+| --- | --- |
+| Marked-up copy: drawings in the right place, same size, no metadata, audited, permission switch, walls, photo unchanged | Real, tested over HTTP (`apps/api/test/photo-markups.test.ts`) |
+| Website button | Real, tested in a simulated browser |
+| Phone "With drawings" share | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |
 

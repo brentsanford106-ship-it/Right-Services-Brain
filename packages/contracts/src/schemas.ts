@@ -238,7 +238,8 @@ export const PHOTO_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
  * (Authorization header required on every download). There are no bearer
  * URLs: a copied link without the caller's token returns 401.
  */
-export const PhotoContentQuery = z.strictObject({ variant: z.enum(["thumb", "preview", "original"]).default("preview") });
+/** "annotated": a copy with the drawings burned in, made on request for sharing (the stored photo never changes). */
+export const PhotoContentQuery = z.strictObject({ variant: z.enum(["thumb", "preview", "original", "annotated"]).default("preview") });
 
 /** Search/recall photos. All filters are optional and combine with AND. */
 export const PhotoSearchQuery = z

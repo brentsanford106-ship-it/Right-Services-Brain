@@ -243,8 +243,18 @@ export default function Review() {
               kind="secondary"
               style={{ flex: 1 }}
               onPress={() => {
-                setSharing(true);
-                void sharePhotos(app, [item], item.local?.jobNumber ?? item.server?.jobNumber ?? "job").finally(() => setSharing(false));
+                const go = (withDrawings: boolean) => {
+                  setSharing(true);
+                  void sharePhotos(app, [item], item.local?.jobNumber ?? item.server?.jobNumber ?? "job", { withDrawings }).finally(() => setSharing(false));
+                };
+                // With drawings on it: ask whether to send them along (a copy is made; the photo itself never changes).
+                if (markList.length) {
+                  Alert.alert("Share this photo", undefined, [
+                    { text: "With drawings", onPress: () => go(true) },
+                    { text: "Photo only", onPress: () => go(false) },
+                    { text: "Cancel", style: "cancel" },
+                  ]);
+                } else go(false);
               }}
             />
             {canDeleteItem(item) ? (
