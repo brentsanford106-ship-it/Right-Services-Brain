@@ -127,7 +127,7 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
   - Arrow keys don't change photo while you are drawing.
 - **Phone:** on the photo screen:
   - Drawings show over the photo, with **Hide drawings / Show drawings**. Tapping a drawing selects it to comment on.
-  - **✎ Draw** opens a drawing screen with the same tools, colors, sizes and Undo. **Zoom** goes 1×, 2× or 3×, and **✋** moves around a zoomed photo.
+  - **✎ Draw** opens a drawing screen with the same tools, colors, sizes and Undo. One finger draws; pinch with two fingers to zoom in or out (up to 5×) and move around. A "Fit" button shows the whole photo again (maths in `packages/photo-sync/src/zoom.ts`, tested).
   - After each drawing, the note box replaces the tools until you add a note, tap No note, or start drawing again. **Done** (top left or bottom) goes back.
 - **Offline:** marks already seen are kept (encrypted) and show without signal. On the phone, a mark drawn with no signal waits in the encrypted offline outbox and is sent automatically later; its note waits in the comment outbox and says which mark it's about in words ("About the red circle: …"), because the mark has no id yet.
 - "Delete forever" of a photo also removes its marks.

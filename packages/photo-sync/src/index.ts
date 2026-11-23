@@ -9,3 +9,4 @@ export * from "./markup";
 export * from "./issues";
 export * from "./alerts";
 export * from "./actions";
+export * from "./zoom";
