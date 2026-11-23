@@ -385,13 +385,13 @@ function AccessButtons({ member, roles, holds, onChanged }: { member: TeamMember
       {member.status === "suspended" ? (
         <button disabled={set.isPending} onClick={() => set.mutate("active")}>Restore access</button>
       ) : (
-        <button disabled={set.isPending} onClick={() => window.confirm(`Suspend ${member.displayName}? They lose access until you restore them, and their phone deletes this company's data (including photos it hasn't uploaded yet) next time it connects.`) && set.mutate("suspended")}>Suspend</button>
+        <button disabled={set.isPending} onClick={() => window.confirm(`Suspend ${member.displayName}? They lose access until you restore them. Next time their phone connects, it removes this company's lists and photos from it, but keeps photos it hasn't uploaded yet (locked) so they can upload if you restore access.`) && set.mutate("suspended")}>Suspend</button>
       )}
       <button
         className="danger"
         disabled={set.isPending}
         onClick={() =>
-          window.confirm(`Remove ${member.displayName} from the company? They lose access straight away and their phone deletes this company's data, including photos it hasn't uploaded yet, next time it connects. To bring them back, add them again.`) &&
+          window.confirm(`Remove ${member.displayName} from the company? They lose access straight away. Next time their phone connects, it removes this company's lists and photos from it, but keeps photos it hasn't uploaded yet (locked). To bring them back, add them again; they press Accept, then those photos upload.`) &&
           set.mutate("removed")
         }
       >
