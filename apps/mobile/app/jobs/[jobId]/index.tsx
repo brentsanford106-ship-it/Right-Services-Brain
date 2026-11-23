@@ -5,6 +5,7 @@ import { ApiError, NetworkError, SORT_LABELS, applyPeople, peopleOf, sortByView,
 import { useApp, useQueueVersion, useSyncStatus, type Job } from "../../../src/state";
 import { applyFilter, mergeGallery, LocalImage, PersonBadge, ServerImage, type Filter, type GalleryItem, type ServerPhoto } from "../../../src/photos";
 import { confirmDelete, sharePhotos } from "../../../src/photoActions";
+import { importFromLibrary } from "../../../src/importPhotos";
 import { C, Chip, DevBanner, Empty, FlagBadge, JOB_STATUSES, StatusPill, SyncPill, s } from "../../../src/ui";
 
 const FILTERS: { value: Filter; label: string }[] = [
@@ -73,7 +74,7 @@ export default function JobGallery() {
     }, [load]),
   );
 
-  const all = mergeGallery(app.queue, jobId, server, sync.uploadingId, app.session?.displayName ?? "");
+  const all = mergeGallery(app.queue, jobId, server, sync.uploadingId, { name: app.session?.displayName ?? "", membershipId: app.session?.membershipId ?? null, avatarAt: app.session?.avatarAt ?? null });
   const items = useMemo(() => sortByView(applyFilter(applyPeople(all, people), filter), sort), [all, people, filter, sort]);
   const peopleList = peopleOf(all);
   const togglePerson = (key: string) =>
@@ -146,6 +147,19 @@ export default function JobGallery() {
       setBusyAction(false);
     }
   };
+
+  const [importing, setImporting] = useState(false);
+  const addFromLibrary = () =>
+    Alert.alert("Add photos from your library", "Which stage are these photos?", [
+      ...(["before", "during", "after"] as const).map((st) => ({
+        text: st.charAt(0).toUpperCase() + st.slice(1),
+        onPress: () => {
+          setImporting(true);
+          void importFromLibrary(app, { jobId, jobNumber: job?.jobNumber ?? jobNumber ?? "" }, st).finally(() => setImporting(false));
+        },
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
 
   const open = (i: GalleryItem) =>
     router.push({ pathname: "/photo/[key]", params: { key: i.key, jobId, ids: items.map((x) => x.key).join(",") } });
@@ -260,7 +274,7 @@ export default function JobGallery() {
             </View>
             {!selecting ? (
               <View pointerEvents="none" style={{ position: "absolute", bottom: 5, right: 5 }}>
-                <PersonBadge personKey={item.personKey} name={item.personName} />
+                <PersonBadge personKey={item.personKey} name={item.personName} personId={item.personId} avatarAt={item.personAvatarAt} />
               </View>
             ) : null}
             {item.flagged ? <View pointerEvents="none" style={{ position: "absolute", inset: 0, borderWidth: 3, borderColor: C.flag, borderRadius: 6 }} /> : null}
@@ -317,13 +331,26 @@ export default function JobGallery() {
           </Pressable>
         </View>
       ) : (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push({ pathname: "/jobs/[jobId]/camera", params: { jobId, jobNumber: jobNumber ?? "" } })}
-          style={({ pressed }) => ({ position: "absolute", left: 16, right: 16, bottom: 32, backgroundColor: C.brand, borderRadius: 14, paddingVertical: 18, alignItems: "center", opacity: pressed ? 0.8 : 1 })}
-        >
-          <Text style={{ color: "#fff", fontWeight: "800", fontSize: 18 }}>📷  Take Photos</Text>
-        </Pressable>
+        <View style={{ position: "absolute", left: 16, right: 16, bottom: 32, flexDirection: "row", gap: 10 }}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push({ pathname: "/jobs/[jobId]/camera", params: { jobId, jobNumber: jobNumber ?? "" } })}
+            style={({ pressed }) => ({ flex: 1, backgroundColor: C.brand, borderRadius: 14, paddingVertical: 18, alignItems: "center", opacity: pressed ? 0.8 : 1 })}
+          >
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 18 }}>📷  Take Photos</Text>
+          </Pressable>
+          {app.can("photos.import") ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add photos from your photo library"
+              disabled={importing}
+              onPress={addFromLibrary}
+              style={({ pressed }) => ({ backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 14, paddingVertical: 18, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", opacity: pressed || importing ? 0.6 : 1 })}
+            >
+              <Text style={{ color: C.text, fontWeight: "700", fontSize: 15 }}>{importing ? "Adding…" : "🖼  Library"}</Text>
+            </Pressable>
+          ) : null}
+        </View>
       )}
     </View>
   );

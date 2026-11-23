@@ -11,7 +11,8 @@
       "bundleIdentifier": "com.example.rsbphotos.dev",
       "infoPlist": {
         "NSCameraUsageDescription": "The camera is used to take job-site photos.",
-        "NSLocationWhenInUseUsageDescription": "Location is optionally saved with job-site photos so they can be found by place."
+        "NSLocationWhenInUseUsageDescription": "Location is optionally saved with job-site photos so they can be found by place.",
+        "NSPhotoLibraryUsageDescription": "Photos you choose are added to a job (marked Imported) or used as your profile picture."
       },
       "icon": "./assets/brand/icon.png"
     },
@@ -30,6 +31,14 @@
         "expo-location",
         {
           "locationWhenInUsePermission": "Location is optionally saved with job-site photos so they can be found by place."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Photos you choose are added to a job (marked Imported) or used as your profile picture.",
+          "cameraPermission": "The camera is used to take job-site photos.",
+          "microphonePermission": false
         }
       ]
     ],

@@ -77,7 +77,13 @@ export async function meRoutes(app: FastifyInstance, { db }: RouteDeps): Promise
         [orgId],
       );
       const { sign_in_every_days, ...organization } = rows[0]!;
+      const { rows: me } = await tx.query<{ display_name: string; avatar_updated_at: Date | null }>(
+        "SELECT u.display_name, m.avatar_updated_at FROM organization_memberships m JOIN users u ON u.id = m.user_id WHERE m.id = $1",
+        [ctx.membershipId],
+      );
       return {
+        displayName: me[0]!.display_name,
+        avatarAt: me[0]!.avatar_updated_at?.toISOString() ?? null,
         organization,
         signInEveryDays: sign_in_every_days,
         membershipId: ctx.membershipId,

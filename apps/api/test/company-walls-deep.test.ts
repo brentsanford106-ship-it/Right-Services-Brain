@@ -169,6 +169,9 @@ describe("company walls: the database rules themselves", () => {
       expect(cols.map((r) => r.x)).toEqual([
         "member_invites.expires_at:UPDATE",
         "member_invites.revoked_at:UPDATE",
+        // 0018: profile pictures. The API only lets people change their own (or a team manager remove one).
+        "organization_memberships.avatar_storage_key:UPDATE",
+        "organization_memberships.avatar_updated_at:UPDATE",
         "organization_memberships.job_title:UPDATE",
         "organization_memberships.status:UPDATE",
         "organizations.deleted_photo_retention_days:UPDATE",

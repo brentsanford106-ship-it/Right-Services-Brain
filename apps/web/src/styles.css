@@ -100,6 +100,7 @@ select { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(
 
 /* Who took it: initials circles, People picker, sort */
 .person { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; color: #fff; font-size: 12px; font-weight: 700; letter-spacing: .02em; flex: none; }
+img.person { object-fit: cover; padding: 0; }
 .person.sm { width: 22px; height: 22px; font-size: 10px; vertical-align: middle; }
 .person.onthumb { position: absolute; left: 6px; bottom: 6px; box-shadow: 0 0 0 2px rgba(255,255,255,.85); }
 .takenby { display: flex; align-items: center; gap: 6px; }
@@ -112,3 +113,6 @@ select { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(
 .peoplemenu .count { margin-left: auto; opacity: .7; font-size: 12px; }
 .peoplemenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 .viewbar .sort { display: flex; align-items: center; gap: 6px; }
+.person.lg { width: 64px; height: 64px; font-size: 22px; }
+.avatarrow { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+label.button { display: inline-block; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; background: var(--card); }

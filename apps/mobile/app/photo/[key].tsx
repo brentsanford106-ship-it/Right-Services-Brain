@@ -26,7 +26,7 @@ export default function Review() {
     void app.cache.get<ServerPhoto[]>(`photos-${jobId}`).then((v) => setServer(v ?? []));
   }, [app.cache, jobId]);
 
-  const item = mergeGallery(app.queue, jobId, server, sync.uploadingId, app.session?.displayName ?? "").find(
+  const item = mergeGallery(app.queue, jobId, server, sync.uploadingId, { name: app.session?.displayName ?? "", membershipId: app.session?.membershipId ?? null, avatarAt: app.session?.avatarAt ?? null }).find(
     (i) => i.key === key || (key.startsWith("l:") && i.local?.localId === key.slice(2)) || (key.startsWith("s:") && i.server?.id === key.slice(2)),
   );
 
@@ -97,7 +97,7 @@ export default function Review() {
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <SyncPill state={item.state === "server_missing_file" ? "waiting" : item.state} />
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-              <PersonBadge personKey={item.personKey} name={item.personName} />
+              <PersonBadge personKey={item.personKey} name={item.personName} personId={item.personId} avatarAt={item.personAvatarAt} />
               <Text style={s.muted}>Taken by {item.personKey === "me" ? "you" : item.personName ?? "unknown"}</Text>
             </View>
           </View>
@@ -138,9 +138,13 @@ export default function Review() {
 
           <View style={[s.card, { gap: 4 }]}>
             <Text style={s.muted}>Job: {item.local?.jobNumber ?? item.server?.jobNumber}</Text>
-            <Text style={s.muted}>Taken: {new Date(item.capturedAt).toLocaleString()}</Text>
+            <Text style={s.muted}>
+              Taken: {item.server?.capturedAtKnown === false || item.local?.capturedAtKnown === false ? `unknown (added ${new Date(item.capturedAt).toLocaleString()})` : new Date(item.capturedAt).toLocaleString()}
+            </Text>
             {item.server && item.server.captureSource && item.server.captureSource !== "in_app_camera" ? (
-              <Text style={s.muted}>Uploaded by: {item.server.uploadedBy} ({item.server.captureSource === "imported" ? "imported from a photo library" : "uploaded on the website"})</Text>
+              <Text style={s.muted}>Uploaded by: {item.server.uploadedByMe ? "you" : item.server.uploadedBy} ({item.server.captureSource === "imported" ? "imported from a photo library" : "uploaded on the website"})</Text>
+            ) : !item.server && item.local?.captureSource === "imported" ? (
+              <Text style={s.muted}>Imported from your photo library</Text>
             ) : null}
             {item.local?.location ? (
               <Text style={s.muted}>

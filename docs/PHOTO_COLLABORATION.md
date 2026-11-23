@@ -7,7 +7,7 @@ It is built in six steps, each its own pull request, tested on a real iPhone bef
 | Step | What | Status |
 | --- | --- | --- |
 | 1a | Who took it: photographer kept separate from uploader, initials on thumbnails, People filter (several people, Photos I took), sort, small gallery thumbnails | Built and tested automatically, **not yet tested on an iPhone** |
-| 1b | Profile pictures, importing photos from the phone's library | Not started |
+| 1b | Profile pictures, importing photos from the phone's library | Built and tested automatically, **not yet tested on an iPhone** |
 | 2 | Comments and replies, @mentions, edit history, offline | Not started |
 | 3 | Markup (circle, arrow, pen, box, text, pin), show/hide, zoom | Not started |
 | 4 | Issues: assign, In Progress, follow-up photo, send for review, approve, send back, reopen, job Issues tab, To Fix list, employee Report issue | Not started |
@@ -39,3 +39,34 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 | Phone screens | Type-checked only. **Not yet tried on an iPhone.** |
 | Paging the gallery for jobs with thousands of photos | Not built yet. A job still loads all its photos at once (fine to a few hundred). |
 | Sign-in, hosting, backups | Still simulated or not built, as in PHASE1_STATUS.md. Nothing here is secure or production-ready yet. |
+
+## Step 1b: profile pictures and photos from the library
+
+**Profile pictures**
+
+- One small picture per person per company, stored on their membership (migration `0018_avatars_and_imports.sql`) at `org/<company>/avatars/<membership>`.
+- The uploaded file is never kept: the server shrinks it to 256 x 256 and re-encodes it, which also removes any location or other details inside it.
+- Anyone in the company can see the pictures (they already see names on photos). Only the person can change their own. People who can manage the team can remove someone's picture. Every change and removal is audited.
+- Shown instead of initials on thumbnails, in the People lists, in the photo viewer, and in Settings. Phone: Settings, then "Add a profile picture" (take a selfie or choose from the library). Website: Settings, then "Your profile picture".
+- Pictures are kept in memory only, never saved to disk on the phone or computer, and are forgotten on sign-out on the website.
+
+**Photos from the phone's library**
+
+- Phone: the **Library** button next to **Take Photos** on a job. Choose the stage, then pick up to 30 photos.
+- They're saved encrypted and uploaded like camera photos, but marked `imported`. Who took them is stored as unknown, because the app can't know. The person who added them is recorded as the uploader.
+- The date comes from the photo's own "date taken" when it has one. When it doesn't, the photo shows "Taken: unknown (added ...)" (`captured_at_known = false`).
+- No location is attached. The phone's current location says nothing about where an older photo was taken.
+- iPhone photos are usually HEIC. The app asks iOS for a JPEG copy, so the stored "original" of an imported photo is that JPEG copy, not the HEIC file in the library.
+- New permission **photos.import**, "Add photos from the phone's photo library". It's on for Owner, Manager and Employee by default, and an owner can switch it off per role in Team & Roles.
+- The photo picker's temporary copies are deleted right after each photo is saved, and again at every app start and sign-out.
+
+**Real vs simulated**
+
+| Part | State |
+| --- | --- |
+| Profile picture storage, shrinking, walls, who may change or remove, audit | Real, tested over HTTP (`apps/api/test/avatars-and-imports.test.ts`) |
+| Imported photos: unknown photographer, unknown date, permission switch | Real, tested over HTTP |
+| Phone queue sends imported photos correctly and keeps the marker after a restart | Real, tested (`packages/photo-sync/test/sync.test.ts`) |
+| Reading "date taken" from photo details | Real, tested (`packages/photo-sync/test/exif.test.ts`) |
+| Website profile picture in Settings and on thumbnails | Real, tested in a simulated browser |
+| Phone screens (Library button, profile picture, pictures on thumbnails) | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |

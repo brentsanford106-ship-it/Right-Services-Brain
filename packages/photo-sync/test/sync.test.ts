@@ -42,8 +42,10 @@ class FakeServer implements PhotoApi {
     }
   }
 
+  bodies: CreatePhotoBody[] = [];
   async createPhoto(_org: string, jobId: string, b: CreatePhotoBody): Promise<ServerPhoto> {
     this.gate("create");
+    this.bodies.push(b);
     let p = [...this.photos.values()].find((x) => x.clientRef === b.clientRef);
     if (!p) {
       p = { id: randomUUID(), clientRef: b.clientRef, jobId, jobNumber: "HP-1001", stage: b.stage, note: b.note ?? null, flagged: b.flagged, capturedAt: b.capturedAt, uploadStatus: "pending", bytes: null };
@@ -216,6 +218,20 @@ describe("sync", () => {
     expect(await queue.readOriginal(a.localId)).toBeNull();
     expect(await queue.readThumbnail(b.localId)).not.toBeNull();
     expect(syncStateOf(queue.get(b.localId)!, null)).toBe("synced");
+  });
+
+  it("photos added from the library are sent as Imported, with an unknown date when the file had none", async () => {
+    await shot(1);
+    await shot(2, { captureSource: "imported", capturedAtKnown: false, location: null });
+    await shot(3, { captureSource: "imported" });
+    await engine.run();
+    expect(server.bodies.map((b) => [b.captureSource, b.capturedAtKnown])).toEqual([
+      [undefined, undefined], ["imported", false], ["imported", true],
+    ]);
+    // Survives a restart (kept in the encrypted details).
+    const again = await freshQueue();
+    expect(again.all().map((p) => p.captureSource).sort()).toEqual(["imported", "imported", "in_app_camera"]);
+    await expect(shot(4, { capturedAtKnown: false })).rejects.toThrow(/always know/);
   });
 
   it("offline: nothing is lost, it waits, then uploads when the connection returns", async () => {

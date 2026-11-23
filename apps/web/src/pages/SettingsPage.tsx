@@ -1,5 +1,6 @@
 import { useOrgContext, useOrgId, useOrgQuery } from "../lib/hooks";
-import { api, ApiRequestError, session } from "../lib/api";
+import { api, ApiRequestError, putImage, session } from "../lib/api";
+import { PersonBadge } from "../components/photos";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { RETENTION_DAY_OPTIONS, SIGN_IN_DAY_OPTIONS, type OrgSettings } from "@rsb/contracts";
@@ -29,6 +30,7 @@ export function SettingsPage() {
           </button>
         ))}
       </div>
+      <ProfilePictureSetting />
       <RecentlyDeletedSetting />
       <SignInAgainSetting />
       <Status query={ctx}>
@@ -122,6 +124,60 @@ function RecentlyDeletedSetting() {
           </>
         )}
       </Status>
+    </>
+  );
+}
+
+/** Your profile picture, shown on your photos instead of your initials. Everyone in the company can see it. */
+function ProfilePictureSetting() {
+  const ctx = useOrgContext();
+  const orgId = useOrgId();
+  const qc = useQueryClient();
+  const [err, setErr] = useState<string | null>(null);
+  const done = async () => {
+    setErr(null);
+    await qc.invalidateQueries({ queryKey: ["org", orgId] });
+    await qc.invalidateQueries({ queryKey: [orgId] });
+  };
+  const upload = useMutation({
+    mutationFn: (f: File) => putImage(`/v1/orgs/${orgId}/me/avatar`, f, f.type),
+    onSuccess: done,
+    onError: (e) => setErr(e instanceof ApiRequestError && e.status === 400 ? "That file isn't a JPEG or PNG picture." : "Couldn't save your picture. Try again."),
+  });
+  const remove = useMutation({
+    mutationFn: () => api(`/v1/orgs/${orgId}/me/avatar`, { method: "DELETE" }),
+    onSuccess: done,
+    onError: () => setErr("Couldn't remove your picture. Try again."),
+  });
+  const c = ctx.data;
+  if (!c) return null;
+  return (
+    <>
+      <h2>Your profile picture</h2>
+      <p className="muted small">Shown on the photos you take, instead of your initials. Everyone in {c.organization.name} can see it.</p>
+      <div className="avatarrow">
+        <PersonBadge id={c.membershipId} name={c.displayName ?? null} avatarAt={c.avatarAt} className="lg" />
+        <label className="button">
+          {c.avatarAt ? "Change picture" : "Add a picture"}
+          <input
+            type="file"
+            accept="image/jpeg,image/png"
+            hidden
+            disabled={upload.isPending}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (!f) return;
+              if (f.type !== "image/jpeg" && f.type !== "image/png") return setErr("Choose a JPEG or PNG picture.");
+              if (f.size > 10 * 1024 * 1024) return setErr("That picture is too big (10 MB at most).");
+              upload.mutate(f);
+            }}
+          />
+        </label>
+        {c.avatarAt && <button disabled={remove.isPending} onClick={() => remove.mutate()}>Remove</button>}
+      </div>
+      {upload.isPending && <p className="muted small">Saving…</p>}
+      {err && <p className="error" role="alert">{err}</p>}
     </>
   );
 }

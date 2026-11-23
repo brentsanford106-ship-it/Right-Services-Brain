@@ -34,7 +34,12 @@ export interface Session {
   signedInAt?: number;
   /** The company's rule: sign in again after this many days. */
   signInEveryDays?: number;
+  /** This person's id in the company, and when their profile picture last changed (null = none). */
+  membershipId?: string;
+  avatarAt?: string | null;
 }
+
+type OrgCtx = { permissions: string[]; signInEveryDays?: number; membershipId?: string; avatarAt?: string | null };
 
 type Who = { subject: string; displayName: string; mode: "dev" | "entra"; signedInAt?: number };
 const DAY_MS = 24 * 3600_000;
@@ -443,7 +448,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           pendingSubject.current ??
           (cur ? { subject: cur.subject, displayName: cur.displayName, mode: cur.mode ?? "dev", ...(cur.signedInAt ? { signedInAt: cur.signedInAt } : {}) } : null);
         if (!p) throw new Error("Sign in first.");
-        const ctx = await holder.current!.api.get<{ permissions: string[]; signInEveryDays?: number }>(`/v1/orgs/${orgId}`);
+        const ctx = await holder.current!.api.get<OrgCtx>(`/v1/orgs/${orgId}`);
         await holder.current!.queue.claim({ subject: p.subject, displayName: p.displayName });
         // A fresh sign-in may come with access turned back on (for example after a suspension): try photos that were
         // refused before once more. Anything still refused simply goes back to "needs attention".
@@ -459,6 +464,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           mode: p.mode,
           ...(p.signedInAt ? { signedInAt: p.signedInAt } : {}),
           ...(ctx.signInEveryDays ? { signInEveryDays: ctx.signInEveryDays } : {}),
+          ...(ctx.membershipId ? { membershipId: ctx.membershipId } : {}),
+          avatarAt: ctx.avatarAt ?? null,
         };
         await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(s), OPTS);
         sessionRef.current = s;
@@ -472,11 +479,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const cur = sessionRef.current;
         if (!cur) return;
         try {
-          const ctx = await holder.current!.api.get<{ permissions: string[]; signInEveryDays?: number }>(`/v1/orgs/${cur.orgId}`);
+          const ctx = await holder.current!.api.get<OrgCtx>(`/v1/orgs/${cur.orgId}`);
           const next = [...ctx.permissions].sort();
           const every = ctx.signInEveryDays ?? cur.signInEveryDays;
-          if (JSON.stringify(next) === JSON.stringify([...cur.permissions].sort()) && every === cur.signInEveryDays) return;
-          const s: Session = { ...cur, permissions: next, ...(every ? { signInEveryDays: every } : {}) };
+          const avatarAt = ctx.avatarAt ?? null;
+          const membershipId = ctx.membershipId ?? cur.membershipId;
+          if (
+            JSON.stringify(next) === JSON.stringify([...cur.permissions].sort()) && every === cur.signInEveryDays &&
+            avatarAt === (cur.avatarAt ?? null) && membershipId === cur.membershipId
+          ) return;
+          const s: Session = { ...cur, permissions: next, ...(every ? { signInEveryDays: every } : {}), ...(membershipId ? { membershipId } : {}), avatarAt };
           await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(s), OPTS);
           sessionRef.current = s;
           setSession(s);

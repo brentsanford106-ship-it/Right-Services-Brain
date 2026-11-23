@@ -77,6 +77,9 @@ export const OrgContextResponse = z.object({
   permissions: z.array(z.string()),
   /** People must sign in again after this many days (real sign-in; enforced by the apps when online). */
   signInEveryDays: z.number().int(),
+  /** Your display name and profile picture in this company (null = none, initials are shown). */
+  displayName: z.string(),
+  avatarAt: z.string().nullable(),
 });
 export type OrgContextResponse = z.infer<typeof OrgContextResponse>;
 
@@ -161,6 +164,10 @@ export const Photo = z.object({
   uploadedByMe: z.boolean(),
   /** How the photo got into the app. */
   captureSource: z.enum(["in_app_camera", "imported", "web_upload"]),
+  /** false = the file had no "date taken"; capturedAt is when it was added to the app. */
+  capturedAtKnown: z.boolean(),
+  /** When the photographer last changed their profile picture; null = no picture (show initials). */
+  photographerAvatarAt: z.string().nullable(),
   openFlags: z.number().int(),
   latitude: z.number().nullable(),
   longitude: z.number().nullable(),
@@ -199,6 +206,10 @@ export const CreatePhotoRequest = z
     flagged: z.boolean().default(false),
     capturedAt: z.iso.datetime({ offset: true }),
     contentType: z.enum(["image/jpeg", "image/png", "image/heic"]),
+    /** "imported" = added from the phone's photo library (needs photos.import). Default: taken in the app's camera. */
+    captureSource: z.enum(["in_app_camera", "imported"]).default("in_app_camera"),
+    /** Imported photos only: false when the file had no "date taken" and capturedAt is just when it was added. */
+    capturedAtKnown: z.boolean().default(true),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
     locationAccuracyM: z.number().min(0).max(100_000).optional(),
@@ -206,6 +217,10 @@ export const CreatePhotoRequest = z
   .refine((v) => (v.latitude === undefined) === (v.longitude === undefined), {
     path: ["longitude"],
     message: "latitude and longitude must be sent together",
+  })
+  .refine((v) => v.captureSource === "imported" || v.capturedAtKnown, {
+    path: ["capturedAtKnown"],
+    message: "photos taken in the app always know when they were taken",
   });
 export type CreatePhotoRequest = z.infer<typeof CreatePhotoRequest>;
 

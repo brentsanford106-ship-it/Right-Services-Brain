@@ -37,6 +37,9 @@ export interface CreatePhotoBody {
   latitude?: number;
   longitude?: number;
   locationAccuracyM?: number;
+  /** Left out for photos from the app's camera. */
+  captureSource?: "imported";
+  capturedAtKnown?: boolean;
 }
 
 export interface PhotoApi {
@@ -155,7 +158,12 @@ export class HttpClient implements PhotoApi {
   }
 
   async uploadContent(orgId: string, photoId: string, bytes: Uint8Array, contentType: string) {
-    const url = `${this.o.baseUrl}/v1/orgs/${orgId}/photos/${photoId}/content`;
+    return this.putRaw<{ uploadStatus: string; duplicate: boolean }>(`/v1/orgs/${orgId}/photos/${photoId}/content`, bytes, contentType);
+  }
+
+  /** Sends a file as the raw request body (photo files, profile pictures). */
+  async putRaw<T>(path: string, bytes: Uint8Array, contentType: string): Promise<T> {
+    const url = `${this.o.baseUrl}${path}`;
     const headers = { authorization: `Bearer ${await this.token()}`, "content-type": contentType };
     let res;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -176,6 +184,6 @@ export class HttpClient implements PhotoApi {
     } finally {
       clearTimeout(timer);
     }
-    return this.handle<{ uploadStatus: string; duplicate: boolean }>(res);
+    return this.handle<T>(res);
   }
 }

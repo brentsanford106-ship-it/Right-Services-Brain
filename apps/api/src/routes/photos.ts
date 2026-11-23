@@ -46,6 +46,8 @@ interface PhotoRow {
   photographer_membership_id: string | null;
   photographer: string | null;
   capture_source: Photo["captureSource"];
+  captured_at_known: boolean;
+  photographer_avatar_at: Date | null;
   open_flags: number;
   latitude: number | null;
   longitude: number | null;
@@ -56,7 +58,8 @@ interface PhotoRow {
 
 const PHOTO_SELECT = `SELECT p.id, p.job_id, j.job_number, j.site_name, p.stage, p.caption, p.is_flagged, p.flagged_at, p.captured_at, p.stored_at, p.upload_status,
                              u.display_name AS uploaded_by, p.uploaded_by_membership_id,
-                             p.photographer_membership_id, pu.display_name AS photographer, p.capture_source, p.latitude, p.longitude, p.width_px, p.height_px,
+                             p.photographer_membership_id, pu.display_name AS photographer, p.capture_source, p.captured_at_known,
+                             pm.avatar_updated_at AS photographer_avatar_at, p.latitude, p.longitude, p.width_px, p.height_px,
                              (p.preview_storage_key IS NOT NULL) AS has_preview,
                              (SELECT count(*)::int FROM photo_flags f WHERE f.organization_id = p.organization_id AND f.photo_id = p.id AND f.status = 'open') AS open_flags
                         FROM photos p
@@ -88,6 +91,8 @@ const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
   takenByMe: r.photographer_membership_id !== null && r.photographer_membership_id === ctx.membershipId,
   uploadedByMe: r.uploaded_by_membership_id === ctx.membershipId,
   captureSource: r.capture_source,
+  capturedAtKnown: r.captured_at_known,
+  photographerAvatarAt: r.photographer_avatar_at?.toISOString() ?? null,
   openFlags: r.open_flags,
   latitude: r.latitude,
   longitude: r.longitude,
@@ -180,21 +185,26 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
     const body = parse(CreatePhotoRequest, req.body);
     const result = await inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("photos.upload");
+      if (body.captureSource === "imported") ctx.require("photos.import");
       await assertJobAccess(tx, ctx, jobId);
       if (new Date(body.capturedAt).getTime() > Date.now() + 5 * 60_000) {
         throw new HttpError("validation_failed", undefined, [{ path: "capturedAt", issue: "cannot be in the future" }]);
       }
       const { id, created } = await insertIdempotent(
         tx, "photos", body.clientRef, ctx.membershipId,
+        // Who took it is never taken from the request: in-app photos are credited to the signed-in person by the
+        // database; imported photos stay "unknown".
         `INSERT INTO photos (organization_id, job_id, content_type, stage, caption, captured_at, uploaded_by_membership_id,
-                             client_ref, latitude, longitude, location_accuracy_m, is_flagged, flagged_at, flagged_by_membership_id)
+                             client_ref, latitude, longitude, location_accuracy_m, is_flagged, flagged_at, flagged_by_membership_id,
+                             capture_source, captured_at_known)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::boolean,
-                 CASE WHEN $12::boolean THEN now() END, CASE WHEN $12::boolean THEN $7::uuid END)
+                 CASE WHEN $12::boolean THEN now() END, CASE WHEN $12::boolean THEN $7::uuid END, $13, $14)
          ON CONFLICT (organization_id, client_ref) DO NOTHING RETURNING id`,
         [ctx.orgId, jobId, body.contentType, body.stage, body.note ?? null, body.capturedAt, ctx.membershipId,
-         body.clientRef, body.latitude ?? null, body.longitude ?? null, body.locationAccuracyM ?? null, body.flagged],
+         body.clientRef, body.latitude ?? null, body.longitude ?? null, body.locationAccuracyM ?? null, body.flagged,
+         body.captureSource, body.capturedAtKnown],
       );
-      if (created) await recordAudit(tx, ctx, "photo.recorded", "photo", id, { jobId, hasLocation: body.latitude !== undefined });
+      if (created) await recordAudit(tx, ctx, "photo.recorded", "photo", id, { jobId, hasLocation: body.latitude !== undefined, source: body.captureSource });
       const { rows } = await tx.query<PhotoRow>(`${PHOTO_SELECT} WHERE p.id = $1`, [id]);
       return { photo: toPhoto(rows[0]!, ctx), created };
     });

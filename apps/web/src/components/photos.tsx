@@ -75,21 +75,50 @@ export function sortPhotos(items: Photo[], sort: Sort): Photo[] {
 }
 
 /** Everyone who took at least one of these photos, with how many, A to Z. */
-export function peopleIn(items: Photo[]): { id: string; name: string; count: number }[] {
-  const m = new Map<string, { id: string; name: string; count: number }>();
+export function peopleIn(items: Photo[]): { id: string; name: string; count: number; avatarAt: string | null }[] {
+  const m = new Map<string, { id: string; name: string; count: number; avatarAt: string | null }>();
   for (const p of items) {
     const id = p.photographerId ?? "unknown";
-    const e = m.get(id) ?? { id, name: p.photographer ?? "Unknown", count: 0 };
+    const e = m.get(id) ?? { id, name: p.photographer ?? "Unknown", count: 0, avatarAt: p.photographerAvatarAt ?? null };
     e.count++;
     m.set(id, e);
   }
   return [...m.values()].sort((a, b) => (a.id === "unknown" ? 1 : 0) - (b.id === "unknown" ? 1 : 0) || a.name.localeCompare(b.name));
 }
 
-/** Small colored circle with someone's initials. */
-export function PersonBadge({ id, name, className }: { id: string | null; name: string | null; className?: string }) {
+/** Profile pictures, loaded once per person and version and kept only in this page's memory. */
+const avatarCache = new Map<string, Promise<string>>();
+export function forgetAvatars(): void {
+  for (const p of avatarCache.values()) void p.then((u) => URL.revokeObjectURL(u)).catch(() => undefined);
+  avatarCache.clear();
+}
+function useAvatar(orgId: string, id: string | null, at: string | null | undefined): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    setUrl(null);
+    if (!id || !at || !orgId) return;
+    const key = `${orgId}:${id}:${at}`;
+    let p = avatarCache.get(key);
+    if (!p) {
+      p = fetchImage(`/v1/orgs/${orgId}/members/${id}/avatar`);
+      avatarCache.set(key, p);
+      p.catch(() => avatarCache.delete(key));
+    }
+    let live = true;
+    p.then((u) => live && setUrl(u)).catch(() => undefined);
+    return () => { live = false; };
+  }, [orgId, id, at]);
+  return url;
+}
+
+/** Someone's profile picture, or a colored circle with their initials when they have none. */
+export function PersonBadge({ id, name, avatarAt, className }: { id: string | null; name: string | null; avatarAt?: string | null; className?: string }) {
+  const orgId = useOrgId();
+  const url = useAvatar(orgId, id, avatarAt);
+  const title = name ? `Taken by ${name}` : "Who took this is unknown";
+  if (url) return <img className={`person ${className ?? ""}`} src={url} alt="" title={title} aria-hidden />;
   return (
-    <span className={`person ${className ?? ""}`} style={{ background: personColor(id) }} title={name ? `Taken by ${name}` : "Who took this is unknown"} aria-hidden>
+    <span className={`person ${className ?? ""}`} style={{ background: personColor(id) }} title={title} aria-hidden>
       {initials(name)}
     </span>
   );
@@ -117,7 +146,7 @@ export function PeopleAndSort({ items, people, onPeople, sort, onSort }: { items
           {list.map((x) => (
             <label key={x.id}>
               <input type="checkbox" checked={people.has(x.id)} onChange={() => toggle(x.id)} />
-              <PersonBadge id={x.id === "unknown" ? null : x.id} name={x.id === "unknown" ? null : x.name} className="sm" /> {x.name} <span className="count">{x.count}</span>
+              <PersonBadge id={x.id === "unknown" ? null : x.id} name={x.id === "unknown" ? null : x.name} avatarAt={x.avatarAt} className="sm" /> {x.name} <span className="count">{x.count}</span>
             </label>
           ))}
         </div>
@@ -207,7 +236,7 @@ export function PhotoGrid({ items, onOpen, showJob, selected, onToggle }: { item
             {selected && <span className={`pick ${selected.has(p.id) ? "on" : ""}`} aria-hidden>{selected.has(p.id) ? "✓" : ""}</span>}
             {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content?variant=thumb`} alt="" className="thumb" /> : <div className="imgph thumb">{p.uploadStatus === "pending" ? "File not uploaded yet" : "No preview"}</div>}
             {p.flagged && <span className="flagmark" aria-hidden>⚑</span>}
-            <PersonBadge id={p.photographerId} name={p.photographer} className="onthumb" />
+            <PersonBadge id={p.photographerId} name={p.photographer} avatarAt={p.photographerAvatarAt} className="onthumb" />
           </button>
           <div className="meta">
             <span>{stageLabel(p.stage)}</span>
@@ -298,9 +327,9 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
         {p.siteName && <div className="muted">{p.siteName}</div>}
         <dl className="facts">
           <dt>Taken</dt>
-          <dd>{new Date(p.capturedAt).toLocaleString()}</dd>
+          <dd>{p.capturedAtKnown ? new Date(p.capturedAt).toLocaleString() : `Unknown (added ${new Date(p.capturedAt).toLocaleString()})`}</dd>
           <dt>Taken by</dt>
-          <dd className="takenby"><PersonBadge id={p.photographerId} name={p.photographer} className="sm" /> {takenByLabel(p)}{p.takenByMe ? " (you)" : ""}</dd>
+          <dd className="takenby"><PersonBadge id={p.photographerId} name={p.photographer} avatarAt={p.photographerAvatarAt} className="sm" /> {takenByLabel(p)}{p.takenByMe ? " (you)" : ""}</dd>
           {(p.captureSource !== "in_app_camera" || p.photographer !== p.uploadedBy) && (
             <>
               <dt>Uploaded by</dt>

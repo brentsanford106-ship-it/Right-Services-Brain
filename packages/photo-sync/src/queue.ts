@@ -27,6 +27,10 @@ export interface QueuedPhoto {
   widthPx: number | null;
   heightPx: number | null;
   byteLength: number;
+  /** "imported" = added from the phone's photo library. Missing on photos saved by older app versions = in-app camera. */
+  captureSource?: CaptureSource;
+  /** Imported photos only: false when the file had no "date taken" (capturedAt is then when it was added). */
+  capturedAtKnown?: boolean;
   /** Server id once the record exists on the server. */
   serverId: string | null;
   /** Step 1 done: the server has the photo's details. */
@@ -49,6 +53,8 @@ export interface QueuedPhoto {
   syncedAt: string | null;
 }
 
+export type CaptureSource = "in_app_camera" | "imported";
+
 export interface CaptureInput {
   orgId: string;
   jobId: string;
@@ -62,6 +68,9 @@ export interface CaptureInput {
   widthPx?: number | null;
   heightPx?: number | null;
   location?: Location | null;
+  /** Default: taken with the app's camera. */
+  captureSource?: CaptureSource;
+  capturedAtKnown?: boolean;
 }
 
 export interface PhotoEdit {
@@ -211,6 +220,7 @@ export class PhotoQueue {
   async capture(input: CaptureInput): Promise<QueuedPhoto> {
     if (!this.owner) throw new Error("Sign in before taking photos.");
     if (input.note && input.note.length > NOTE_MAX) throw new Error("Note is too long.");
+    if (input.capturedAtKnown === false && input.captureSource !== "imported") throw new Error("Photos taken in the app always know when they were taken.");
     const localId = this.opts.uuid().toLowerCase();
     if (!UUID.test(localId)) throw new Error("uuid generator returned an invalid id");
     const rec: QueuedPhoto = {
@@ -227,6 +237,8 @@ export class PhotoQueue {
       widthPx: input.widthPx ?? null,
       heightPx: input.heightPx ?? null,
       byteLength: input.original.byteLength,
+      captureSource: input.captureSource ?? "in_app_camera",
+      capturedAtKnown: input.capturedAtKnown ?? true,
       serverId: null,
       recorded: false,
       stored: false,

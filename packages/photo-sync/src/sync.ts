@@ -158,6 +158,7 @@ export class SyncEngine {
         flagged: p.flagged,
         capturedAt: p.capturedAt,
         contentType: p.contentType,
+        ...(p.captureSource === "imported" ? { captureSource: "imported" as const, capturedAtKnown: p.capturedAtKnown ?? true } : {}),
         ...(p.note ? { note: p.note } : {}),
         ...(p.location
           ? {

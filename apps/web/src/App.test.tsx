@@ -102,11 +102,11 @@ describe("web dashboard", () => {
     const org = { organization: { id: "o", name: "Demo Co", slug: "demo" }, membershipId: "m", roles: ["manager"], permissions: ["org.read", "jobs.read_all"] };
     const job = { id: "j1", jobNumber: "HP-1001", title: "Pump island (DEMO)", status: "active", siteName: null, siteAddress: null, customerName: null, scheduledStart: null, scheduledEnd: null, assignees: null };
     const base = { jobId: "j1", jobNumber: "HP-1001", siteName: null, stage: "during", note: null, flagged: false, flaggedAt: null, uploadStatus: "stored", openFlags: 0, latitude: null, longitude: null, widthPx: 10, heightPx: 10, hasPreview: true, storedAt: null, captureSource: "in_app_camera", uploadedByMe: false, canDelete: false };
-    const by = (id: string, pid: string | null, name: string | null, at: string, mine = false) => ({ ...base, id, capturedAt: at, photographerId: pid, photographer: name, uploadedBy: name ?? "Someone", takenByMe: mine, uploadedByMe: mine });
+    const by = (id: string, pid: string | null, name: string | null, at: string, mine = false) => ({ ...base, id, capturedAt: at, capturedAtKnown: true, photographerAvatarAt: null as string | null, photographerId: pid, photographer: name, uploadedBy: name ?? "Someone", takenByMe: mine, uploadedByMe: mine });
     const photos = [
       by("p1", "john", "John Smith", "2026-11-10T09:00:00Z"),
       by("p2", "john", "John Smith", "2026-11-10T10:00:00Z"),
-      by("p3", "ann", "Ann Lee", "2026-11-10T11:00:00Z"),
+      { ...by("p3", "ann", "Ann Lee", "2026-11-10T11:00:00Z"), photographerAvatarAt: "2026-11-20T00:00:00Z" },
       by("p4", "me", "Morgan Manager", "2026-11-10T12:00:00Z", true),
       { ...by("p5", null, null, "2026-11-10T13:00:00Z"), captureSource: "imported" },
     ];
@@ -114,7 +114,7 @@ describe("web dashboard", () => {
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined }));
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       urls.push(url);
-      if (url.includes("/content")) return new Response(new Blob(["img"]), { status: 200 });
+      if (url.includes("/content") || url.endsWith("/avatar")) return new Response("img", { status: 200 });
       if (url.endsWith("/jobs/j1/photos")) return new Response(JSON.stringify({ items: photos }), { status: 200 });
       if (url.endsWith("/jobs/j1")) return new Response(JSON.stringify(job), { status: 200 });
       return new Response(JSON.stringify(org), { status: 200 });
@@ -127,6 +127,9 @@ describe("web dashboard", () => {
     expect(screen.getAllByTitle("Who took this is unknown").length).toBeGreaterThan(0);
     // Grids ask for the small thumbnail.
     await waitFor(() => expect(urls.some((u) => u.endsWith("/content?variant=thumb"))).toBe(true));
+    // Ann has a profile picture: it is loaded once (with the sign-in token) and shown instead of her initials.
+    await waitFor(() => expect(urls.filter((u) => u.endsWith("/members/ann/avatar")).length).toBe(1));
+    await waitFor(() => expect(screen.queryAllByText("AL")).toHaveLength(0));
 
     const shown = () => screen.getAllByRole("button", { name: /Open .* photo/ }).map((b) => b.getAttribute("aria-label")!.replace(/^.*taken by /, "").replace(/,.*$/, ""));
     fireEvent.click(screen.getByRole("checkbox", { name: /John Smith/ }));

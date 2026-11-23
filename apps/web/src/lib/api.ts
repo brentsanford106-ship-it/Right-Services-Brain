@@ -115,6 +115,25 @@ export async function api<T>(path: string, init: { method?: "GET" | "POST" | "PA
   return data as T;
 }
 
+/** Uploads a picture file as-is (e.g. a profile picture). The server shrinks it and removes its metadata. */
+export async function putImage<T>(path: string, file: Blob, contentType: string, retried = false): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PUT",
+    headers: { ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}), "content-type": contentType },
+    body: file,
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+  });
+  if (res.status === 401 && !retried && (await renewDevToken())) return putImage(path, file, contentType, true);
+  const data: unknown = await res.json().catch(() => null);
+  if (!res.ok) {
+    const parsed = ApiError.safeParse(data);
+    if (parsed.success) throw new ApiRequestError(res.status, parsed.data.error.code, parsed.data.error.message, parsed.data.error.requestId);
+    throw new ApiRequestError(res.status, "internal_error", "Upload failed.");
+  }
+  return data as T;
+}
+
 /**
  * Downloads an image with the access token and returns a temporary in-page URL for it.
  * Photo links are never shareable: every download needs the signed-in person's token.
