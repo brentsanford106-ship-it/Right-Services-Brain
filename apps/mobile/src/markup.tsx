@@ -59,6 +59,7 @@ export function useMarks(photoId: string | null) {
   const [marks, setMarks] = useState<SavedMarkup[]>([]);
   const [offline, setOffline] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [cached, setCached] = useState(false);
   const load = useCallback(async () => {
     if (!photoId) return;
     const key = `marks-${photoId}`;
@@ -71,10 +72,10 @@ export function useMarks(photoId: string | null) {
     } catch {
       setOffline(true);
       const cached = await app.cache.get<SavedMarkup[]>(key);
-      if (cached) setMarks(cached);
+      if (cached) { setMarks(cached); setCached(true); }
     }
   }, [app.api, app.cache, orgId, photoId]);
   useEffect(() => { void load(); }, [load]);
-  /** loaded: the server's current marks are here (not just a saved copy). */
-  return { marks, offline, loaded, reload: load };
+  /** loaded: the server's current marks are here. cached: no signal, but the copy saved on this phone is. */
+  return { marks, offline, loaded, cached, reload: load };
 }

@@ -1,6 +1,7 @@
 import { ApiError, NetworkError, type CreatePhotoBody, type PhotoApi, type ServerPhoto } from "./api";
 import type { PhotoQueue, QueuedPhoto } from "./queue";
 import type { CommentOutbox } from "./comments";
+import type { ActionOutbox } from "./actions";
 
 export type StopReason = "offline" | "sign_in_required" | null;
 
@@ -57,7 +58,7 @@ export class SyncEngine {
   constructor(
     private readonly queue: PhotoQueue,
     private readonly api: PhotoApi,
-    private readonly opts: { now?: () => number; random?: () => number; keepSyncedOriginals?: boolean; comments?: CommentOutbox } = {},
+    private readonly opts: { now?: () => number; random?: () => number; keepSyncedOriginals?: boolean; comments?: CommentOutbox; actions?: ActionOutbox } = {},
   ) {}
 
   private now(): number {
@@ -135,6 +136,11 @@ export class SyncEngine {
       const api = this.api;
       if (stoppedBecause === null && this.opts.comments && api.createComment) {
         const r = await this.opts.comments.flush({ createComment: (o, p, b) => api.createComment!(o, p, b) }, force);
+        stoppedBecause = r.stoppedBecause;
+      }
+      // Then drawings and issue changes made with no signal (after comments, in the order they were made).
+      if (stoppedBecause === null && this.opts.actions && api.post) {
+        const r = await this.opts.actions.flush({ post: (path, body) => api.post!(path, body) }, force);
         stoppedBecause = r.stoppedBecause;
       }
     } finally {

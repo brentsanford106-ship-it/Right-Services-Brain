@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import * as Crypto from "expo-crypto";
-import { ApiError, ISSUE_EVENT_LABEL, ISSUE_STATUS_LABEL, NetworkError, issueStatusText, type IssueStatus } from "@rsb/photo-sync";
-import { useApp } from "./state";
+import { ApiError, ISSUE_EVENT_LABEL, type PendingAction, ISSUE_STATUS_LABEL, NetworkError, issueStatusText, type IssueStatus } from "@rsb/photo-sync";
+import { useActionsVersion, useApp } from "./state";
 import { ServerImage, type ServerPhoto } from "./photos";
 import { Button, C, s } from "./ui";
 
@@ -87,14 +87,39 @@ export function IssueStatusPill({ issue }: { issue: Pick<ServerIssue, "status" |
 }
 
 type Mode = null | "submit" | "approve" | "send_back" | "reopen";
+const ACTION_LABEL: Record<string, string> = { start: "Start", submit: "Send fix for review", approve: "Approve fix", send_back: "Send back", reopen: "Reopen", assign: "Assign" };
+
+/** A drawing or issue change saved on this phone with no signal: waiting, or refused (with Try again / Discard). */
+export function WaitingChange({ a, what }: { a: PendingAction; what: string }) {
+  const app = useApp();
+  return (
+    <View style={{ gap: 6, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: a.needsAttention ? C.flag : C.line }}>
+      <Text style={{ color: a.needsAttention ? C.flag : C.text, fontWeight: "600" }}>
+        {a.needsAttention ? `⚠️ ${what} wasn't saved` : `⏳ ${what}: waiting for signal`}
+      </Text>
+      <Text style={s.muted}>{a.needsAttention && a.lastError ? a.lastError : "Kept on this phone and sent automatically."}</Text>
+      {a.needsAttention ? (
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Button title="Try again" kind="secondary" style={{ flex: 1 }} onPress={() => { void app.actions.retry(a.localId).then(() => app.syncNow()); }} />
+          <Button title="Discard" kind="danger" style={{ flex: 1 }} onPress={() => Alert.alert("Throw this away?", "It was never saved on the server.", [
+            { text: "Keep it", style: "cancel" },
+            { text: "Throw away", style: "destructive", onPress: () => void app.actions.discard(a.localId) },
+          ])} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 /** One issue and the buttons the viewer may use. Changing an issue needs a connection for now. */
 export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLink }: {
   issue: ServerIssue; onChanged: () => void; markName?: string | null; onShowMark?: () => void; showPhotoLink?: boolean;
 }) {
   const app = useApp();
+  useActionsVersion();
   const i = issue;
   const orgId = app.session?.orgId ?? "";
+  const waiting = app.actions.forIssue(i.id);
   const [mode, setMode] = useState<Mode>(null);
   const [note, setNote] = useState("");
   const [fixes, setFixes] = useState<string[]>([]);
@@ -105,14 +130,25 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
 
   const act = async (body: { action: string; note?: string | null; assigneeId?: string | null; fixPhotoIds?: string[] }) => {
     setBusy(true);
+    // Made once, so if this is sent again later (no signal now) the server applies it only once.
+    const full = { clientRef: Crypto.randomUUID(), expectedStatus: i.status, ...body };
+    const done = () => { setMode(null); setNote(""); setFixes([]); setHistory(null); };
     try {
-      await app.api.post(`/v1/orgs/${orgId}/photo-issues/${i.id}/actions`, { clientRef: Crypto.randomUUID(), expectedStatus: i.status, ...body });
-      setMode(null);
-      setNote("");
-      setFixes([]);
-      setHistory(null);
+      await app.api.post(`/v1/orgs/${orgId}/photo-issues/${i.id}/actions`, full);
+      done();
       onChanged();
     } catch (e) {
+      if (e instanceof NetworkError) {
+        // No signal: keep it on the phone and send it later. If the issue changes meanwhile, nothing is changed and the phone says so.
+        try {
+          await app.actions.add({ orgId, jobId: i.jobId, photoId: i.photoId, kind: "issue_action", issueId: i.id, body: full, label: ACTION_LABEL[body.action] ?? body.action });
+          done();
+          Alert.alert("Saved on this phone", "No signal right now. It will be sent automatically. If someone changes this issue first, nothing is changed and you'll see why here.");
+        } catch (err) {
+          Alert.alert("Not saved", err instanceof Error ? err.message : "Please try again.");
+        }
+        return;
+      }
       Alert.alert("Not saved", problem(e));
       if (e instanceof ApiError && e.status === 409) onChanged();
     } finally {
@@ -172,7 +208,8 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
         </View>
       ) : null}
 
-      {mode === null ? (
+      {waiting.map((a) => <WaitingChange key={a.localId} a={a} what={a.label} />)}
+      {waiting.length ? null : mode === null ? (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           {i.can.start ? <Button title="Start" kind="secondary" busy={busy} onPress={() => void act({ action: "start" })} /> : null}
           {i.can.submit ? <Button title="Send fix for review" onPress={() => void startSubmit()} /> : null}
@@ -244,8 +281,10 @@ export function PhotoIssues({ jobId, serverId, marks = [], aboutMark = null, onS
   jobId: string; serverId: string | null; marks?: MarkRef[]; aboutMark?: MarkRef | null; onShowMark?: (id: string) => void;
 }) {
   const app = useApp();
+  useActionsVersion();
   const orgId = app.session?.orgId ?? "";
   const canReport = app.can("photo_issues.create");
+  const waitingReports = app.actions.forPhoto(serverId, "issue_report");
   const canManage = app.can("photo_issues.manage");
   const [items, setItems] = useState<ServerIssue[] | null>(null);
   const [offline, setOffline] = useState(false);
@@ -272,6 +311,13 @@ export function PhotoIssues({ jobId, serverId, marks = [], aboutMark = null, onS
     }
   }, [app.api, app.cache, orgId, serverId]);
   useEffect(() => { void load(); }, [load]);
+  // Once a waiting report or change has been sent, show the server's copy.
+  const waitingCount = waitingReports.length + app.actions.forPhoto(serverId, "issue_action").length;
+  const lastWaiting = useRef(waitingCount);
+  useEffect(() => {
+    if (waitingCount < lastWaiting.current) void load();
+    lastWaiting.current = waitingCount;
+  }, [waitingCount, load]);
 
   const report = async () => {
     if (!serverId || !title.trim()) return;
@@ -288,6 +334,23 @@ export function PhotoIssues({ jobId, serverId, marks = [], aboutMark = null, onS
       setRef(Crypto.randomUUID());
       await load();
     } catch (e) {
+      if (e instanceof NetworkError) {
+        try {
+          await app.actions.add({
+            orgId, jobId, photoId: serverId, kind: "issue_report", label: `Issue “${title.trim()}”`,
+            body: { clientRef: ref, title: title.trim(), details: details.trim() || null, markupId: aboutMark?.id ?? null, ...(canManage && assignee ? { assigneeId: assignee.id } : {}) },
+          });
+          setReporting(false);
+          setTitle("");
+          setDetails("");
+          setAssignee(null);
+          setRef(Crypto.randomUUID());
+          Alert.alert("Saved on this phone", "No signal right now. The issue will be sent automatically when you have signal.");
+        } catch (err) {
+          Alert.alert("Issue not saved", err instanceof Error ? err.message : "Please try again.");
+        }
+        return;
+      }
       Alert.alert("Issue not saved", `${problem(e)} What you typed is still here.`);
     } finally {
       setBusy(false);
@@ -327,7 +390,8 @@ export function PhotoIssues({ jobId, serverId, marks = [], aboutMark = null, onS
           </View>
         </View>
       ) : null}
-      {items && !items.length && !reporting ? <Text style={s.muted}>Nothing to fix on this photo.</Text> : null}
+      {waitingReports.map((a) => <WaitingChange key={a.localId} a={a} what={a.label} />)}
+      {items && !items.length && !reporting && !waitingReports.length ? <Text style={s.muted}>Nothing to fix on this photo.</Text> : null}
       {(items ?? []).map((i) => (
         <IssueCard key={i.id} issue={i} onChanged={() => void load()}
           markName={i.markupId ? marks.find((m) => m.id === i.markupId)?.name ?? null : undefined}

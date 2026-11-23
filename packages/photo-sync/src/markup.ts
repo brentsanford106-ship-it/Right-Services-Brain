@@ -279,3 +279,24 @@ export function markNames(marks: readonly MarkupShape[]): string[] {
   const nums = pinNumbers(marks);
   return marks.map((m, i) => describeMark(m, nums[i] ?? undefined));
 }
+
+/**
+ * What the photo looks like with drawings that are still waiting on this phone (no signal yet):
+ * marks waiting to be removed are left out, and marks waiting to be added are shown. `waiting` holds the ids of
+ * marks not on the server yet (they can't be commented on or turned into an issue until they're sent).
+ */
+export function withWaitingMarks(
+  saved: readonly SavedMarkup[],
+  waiting: readonly { body: Record<string, unknown> }[],
+  me: { id: string; name: string },
+): { marks: SavedMarkup[]; waiting: Set<string> } {
+  const removed = new Set<string>();
+  const added: SavedMarkup[] = [];
+  for (const w of waiting) {
+    for (const id of (w.body.remove as string[] | undefined) ?? []) removed.add(id);
+    for (const a of (w.body.add as (MarkupShape & { clientRef: string })[] | undefined) ?? []) {
+      added.push({ kind: a.kind, color: a.color, size: a.size, points: a.points, label: a.label ?? null, id: a.clientRef, authorId: me.id, author: me.name, createdAt: "", mine: true, canRemove: false });
+    }
+  }
+  return { marks: [...saved.filter((m) => !removed.has(m.id)), ...added.filter((m) => !removed.has(m.id))], waiting: new Set(added.map((m) => m.id)) };
+}

@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { hitTest } from "@rsb/photo-sync";
+import { hitTest, withWaitingMarks } from "@rsb/photo-sync";
 import { MarksLayer, fitRect, markNames, useMarks } from "../../src/markup";
 import { NOTE_MAX, type Stage } from "@rsb/photo-sync";
-import { useApp, useQueueVersion, useSyncStatus } from "../../src/state";
+import { useActionsVersion, useApp, useQueueVersion, useSyncStatus } from "../../src/state";
 import { LocalImage, PersonBadge, ServerImage, mergeGallery, type ServerPhoto } from "../../src/photos";
 import { canDeleteItem, confirmDelete, sharePhotos } from "../../src/photoActions";
 import { PhotoComments } from "../../src/comments";
@@ -18,6 +18,7 @@ import { Button, C, Chip, DevBanner, SyncPill, STAGES, s } from "../../src/ui";
 export default function Review() {
   const app = useApp();
   useQueueVersion();
+  useActionsVersion();
   const sync = useSyncStatus();
   const { key, jobId } = useLocalSearchParams<{ key: string; jobId: string }>();
   const { width, height } = useWindowDimensions();
@@ -41,7 +42,17 @@ export default function Review() {
   }, [item, draft]);
 
   const serverId = item?.server?.id ?? item?.local?.serverId ?? null;
-  const { marks, reload: reloadMarks } = useMarks(serverId);
+  const { marks: savedMarks, reload: reloadMarks } = useMarks(serverId);
+  // Drawings saved on this phone with no signal show too, until they're sent.
+  const waitingDrawings = app.actions.forPhoto(serverId, "markup_changes");
+  const { marks, waiting } = withWaitingMarks(savedMarks, waitingDrawings, { id: app.session?.membershipId ?? "", name: app.session?.displayName ?? "" });
+  // Once a waiting drawing has been sent, show the server's copy.
+  const waitingCount = waitingDrawings.length;
+  const lastWaiting = useRef(waitingCount);
+  useEffect(() => {
+    if (waitingCount < lastWaiting.current) void reloadMarks();
+    lastWaiting.current = waitingCount;
+  }, [waitingCount, reloadMarks]);
   // Back from the drawing screen: show what was saved.
   useFocusEffect(useCallback(() => { void reloadMarks(); }, [reloadMarks]));
 
@@ -93,7 +104,7 @@ export default function Review() {
   const fit = fitRect(width - (item.flagged ? 8 : 0), imgH, pw, ph);
   const canDraw = app.can("photo_markups.create") && !!serverId && !!item.server?.hasPreview && pw > 0 && ph > 0;
   const names = markNames(marks);
-  const markList = marks.map((m, i) => ({ id: m.id, name: names[i]! }));
+  const markList = marks.map((m, i) => ({ id: m.id, name: names[i]! })).filter((m) => !waiting.has(m.id));
   const own = !item.server || (item.server.uploadedByMe ?? item.server.uploadedBy === app.session?.displayName);
   const canEdit = own ? app.can("photos.upload") : app.can("photo_flags.manage");
   pendingNote.current = noteChanged && canEdit ? () => void saveNote() : null;
@@ -115,7 +126,9 @@ export default function Review() {
               accessibilityLabel={`${marks.length} drawing${marks.length === 1 ? "" : "s"} on this photo. Tap one to comment on it.`}
               onPress={(e) => {
                 const i = hitTest(marks, e.nativeEvent.locationX, e.nativeEvent.locationY, fit.w, fit.h, 24);
-                setPicked(i >= 0 ? marks[i]!.id : null);
+                const id = i >= 0 ? marks[i]!.id : null;
+                if (id && waiting.has(id)) return Alert.alert("Not sent yet", "This drawing is still waiting for signal. You can comment on it once it's sent.");
+                setPicked(id);
               }}
             >
               <MarksLayer marks={marks} w={pw} h={ph} width={fit.w} height={fit.h} highlight={marks.findIndex((m) => m.id === picked)} />
@@ -127,11 +140,28 @@ export default function Review() {
             {marks.length > 0 ? (
               <Button title={showMarks ? `Hide drawings (${marks.length})` : `Show drawings (${marks.length})`} kind="secondary" style={{ flex: 1 }} onPress={() => setShowMarks((v) => !v)} />
             ) : null}
-            {canDraw ? (
-              <Button title="✎ Draw" style={{ flex: 1 }} onPress={() => router.push({ pathname: "/photo/draw", params: { photoId: serverId!, w: String(pw), h: String(ph) } })} />
+            {canDraw && !waitingDrawings.length ? (
+              <Button title="✎ Draw" style={{ flex: 1 }} onPress={() => router.push({ pathname: "/photo/draw", params: { photoId: serverId!, jobId, w: String(pw), h: String(ph) } })} />
             ) : null}
           </View>
         ) : null}
+        {waitingDrawings.map((a) => (
+          <View key={a.localId} style={[s.card, { marginHorizontal: 16, marginTop: 10, gap: 6, borderColor: a.needsAttention ? C.flag : C.line }]}>
+            <Text style={{ color: a.needsAttention ? C.flag : C.text, fontWeight: "600" }}>
+              {a.needsAttention ? `⚠️ ${a.label} wasn't saved` : `⏳ ${a.label} waiting for signal`}
+            </Text>
+            {a.needsAttention && a.lastError ? <Text style={s.muted}>{a.lastError}</Text> : <Text style={s.muted}>It's kept on this phone and sent automatically. Drawing again is possible once it's sent.</Text>}
+            {a.needsAttention ? (
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Button title="Try again" kind="secondary" style={{ flex: 1 }} onPress={() => { void app.actions.retry(a.localId).then(() => app.syncNow()); }} />
+                <Button title="Discard" kind="danger" style={{ flex: 1 }} onPress={() => Alert.alert("Throw away this drawing?", "It was never saved on the server.", [
+                  { text: "Keep it", style: "cancel" },
+                  { text: "Throw away", style: "destructive", onPress: () => void app.actions.discard(a.localId) },
+                ])} />
+              </View>
+            ) : null}
+          </View>
+        ))}
 
         <View style={{ padding: 16, gap: 16 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>

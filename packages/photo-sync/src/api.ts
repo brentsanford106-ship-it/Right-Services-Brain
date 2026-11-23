@@ -48,6 +48,8 @@ export interface PhotoApi {
   updatePhoto(orgId: string, photoId: string, body: { flagged?: boolean; note?: string | null; stage?: Stage }): Promise<ServerPhoto>;
   /** Sends one waiting comment (see CommentOutbox). Optional so older test doubles keep working. */
   createComment?(orgId: string, photoId: string, body: { clientRef: string; body: string; parentId?: string | null; mentionIds: string[]; markupId?: string | null }): Promise<{ id: string }>;
+  /** Sends one waiting drawing or issue change (see ActionOutbox). Optional so older test doubles keep working. */
+  post?<T>(path: string, body: unknown): Promise<T>;
 }
 
 export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string | Uint8Array; signal?: AbortSignal }) => Promise<{

@@ -26,17 +26,18 @@ const ZOOMS = [1, 2, 3];
 
 /**
  * Drawing on one photo (owners and managers). Nothing is sent until Save. The photo itself never changes.
- * Saving needs a connection for now; the drawing stays on screen if it fails, so it can be tried again.
+ * With no signal, Save keeps the drawing on the phone (encrypted) and it is sent automatically later.
  */
 export default function Draw() {
   const app = useApp();
-  const { photoId, w: ws, h: hs } = useLocalSearchParams<{ photoId: string; w: string; h: string }>();
+  const { photoId, jobId, w: ws, h: hs } = useLocalSearchParams<{ photoId: string; jobId?: string; w: string; h: string }>();
   const W = Number(ws) || 1000;
   const H = Number(hs) || 750;
-  const { marks: saved, loaded, offline } = useMarks(photoId);
+  const { marks: saved, loaded, cached, offline } = useMarks(photoId);
   const [draft, setDraft] = useState<MarkupDraft | null>(null);
-  // Start the drawing session once the server's marks are here (and only once, so nothing drawn is ever reset).
-  if (!draft && loaded) setDraft(new MarkupDraft(saved, () => Crypto.randomUUID()));
+  // Start the drawing session once the marks are here: the server's, or with no signal the copy saved on this phone
+  // (only once, so nothing drawn is ever reset).
+  if (!draft && (loaded || cached)) setDraft(new MarkupDraft(saved, () => Crypto.randomUUID()));
   const [, bump] = useState(0);
   const rerender = () => bump((n) => n + 1);
   const [tool, setTool] = useState<Tool>("circle");
@@ -121,6 +122,21 @@ export default function Draw() {
       await app.api.post(`/v1/orgs/${app.session!.orgId}/photos/${photoId}/markups/changes`, draft.changes());
       router.back();
     } catch (e) {
+      if (e instanceof NetworkError && jobId) {
+        // No signal: keep it on the phone (encrypted) and send it automatically later.
+        const ch = draft.changes();
+        try {
+          await app.actions.add({
+            orgId: app.session!.orgId, jobId, photoId, kind: "markup_changes", body: ch,
+            label: `Drawing (${[ch.add.length ? `${ch.add.length} new` : "", ch.remove.length ? `${ch.remove.length} removed` : ""].filter(Boolean).join(", ")})`,
+          });
+          Alert.alert("Saved on this phone", "No signal right now. The drawing will be sent automatically when you have signal.");
+          router.back();
+        } catch (err) {
+          Alert.alert("Drawing not saved", err instanceof Error ? err.message : "Please try again.");
+        }
+        return;
+      }
       Alert.alert(
         "Drawing not saved",
         e instanceof NetworkError ? "No connection. Your drawing is still here: try Save again when you have signal."
@@ -142,7 +158,7 @@ export default function Draw() {
     <View style={[s.screen, { backgroundColor: "#000" }]}>
       <Stack.Screen options={{ title: "Draw", headerLeft: () => <Pressable onPress={cancel} hitSlop={10}><Text style={{ color: C.brand, fontSize: 17 }}>Cancel</Text></Pressable> }} />
       {!draft ? (
-        <Text style={{ color: "#fff", padding: 16 }}>{offline ? "Drawing needs a connection for now. Try again when you have signal." : "Loading the drawing…"}</Text>
+        <Text style={{ color: "#fff", padding: 16 }}>{offline ? "No signal, and this photo's drawings haven't been saved on this phone yet. Open the photo once with signal, then try again." : "Loading the drawing…"}</Text>
       ) : null}
       <ScrollView
         style={{ maxHeight: height * 0.6 }}

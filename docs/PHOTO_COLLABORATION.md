@@ -11,7 +11,7 @@ It is built in six steps, each its own pull request, tested on a real iPhone bef
 | 2 | Comments and replies, @mentions, edit history, offline | Built and tested automatically, **not yet tested on an iPhone** |
 | 3 | Markup (circle, arrow, pen, box, text, pin), show/hide, zoom | Built and tested automatically, **not yet tested on an iPhone** |
 | 4 | Issues: assign, In Progress, follow-up photo, send for review, approve, send back, reopen, job Issues tab, To Fix list, employee Report issue | Built and tested automatically, **not yet tested on an iPhone** |
-| 5 | In-app alerts, per-person alert settings, offline polish, sharing an annotated copy | 5a alerts and settings: built and tested automatically, **not yet tested on an iPhone**. 5b offline and 5c sharing: in progress |
+| 5 | In-app alerts, per-person alert settings, offline polish, sharing an annotated copy | 5a alerts and settings: built and tested automatically, **not yet tested on an iPhone**. 5b offline drawings and issue changes: built and tested automatically, **not yet tested on an iPhone**. 5c sharing: in progress |
 | 6 | Company-wall tests for everything new, full acceptance run on iPhone and web | Not started |
 
 JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the paid Apple account and a real build); employees comment, reply and send fixes for approval but don't draw; employees can report issues (they go to the job's Issues list unassigned); every fix needs a manager's approval; keep In Progress, profile pictures, sort by photographer, alert settings and photo-library import.
@@ -141,7 +141,7 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 | Drawing math, undo/redo, tap-to-select, safe SVG | Real, tested (`packages/photo-sync/test/markup.test.ts`, 7 tests) |
 | Website drawing, hide/show, comment on a mark | Real, tested in a simulated browser (`apps/web/src/App.test.tsx`). Not yet tried in a real browser by JB. |
 | Phone drawing screen and drawings on the photo screen | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** Touch drawing while zoomed is the part most likely to need adjusting. |
-| Saving drawings with no signal | Not built yet (step 5). |
+| Saving drawings with no signal | Built in step 5b (see below). |
 
 ## Step 4: issues to fix
 
@@ -187,7 +187,7 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 | Website issues in the viewer, job list, Overview, filter and badge | Real, tested in a simulated browser (`apps/web/src/App.test.tsx`). Not yet tried in a real browser by JB. |
 | Phone screens (photo screen section, Issues list, To fix on Home, filter, badge) | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |
 | Alerts when something is assigned to you, sent for review, approved or sent back | Not built yet (step 5). |
-| Reporting and changing issues with no signal | Not built yet (step 5). |
+| Reporting and changing issues with no signal | Built in step 5b (see below). |
 
 ## Step 5a: in-app alerts and alert settings
 
@@ -223,4 +223,26 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 | Website bell and settings | Real, tested in a simulated browser (`apps/web/src/App.test.tsx`) |
 | Phone Alerts screen, Home bar, settings switches | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |
 | Push notifications when the app is closed | Not built (needs the Apple account and an App Store build). |
+
+## Step 5b: drawings and issue changes with no signal (phone)
+
+**How it works**
+
+- When Save drawing, Report issue, or an issue button (Start, Send fix, Approve, Send back, Reopen, Assign) can't reach the server, the phone keeps the change in an **encrypted offline outbox** (`packages/photo-sync/src/actions.ts`, files `pa-…` in the same encrypted store as photos). It's sent automatically by the same upload run as photos and comments, after them, in the order it was made.
+- Each change keeps its phone-made ids (`clientRef`), so if the signal drops mid-send and it's sent again, the server applies it once.
+- **Conflict safety:** every issue change carries the status the person saw. If someone changed the issue first (for example, a manager approved it while the phone had no signal), the server changes **nothing** and answers *"This issue changed while you were away: it is now …"*. The phone keeps that change with the reason, shown on the issue with **Try again** and **Discard**. Changes to the same issue (or drawings on the same photo) never overtake each other.
+- A drawing waiting to be sent shows on the photo (marked "⏳ waiting for signal"). Removed marks are hidden. Drawing again on that photo waits until it's sent. A waiting mark can't be commented on until it's on the server.
+- Drawing with no signal works when the photo's drawings were seen before (the copy saved on the phone). Otherwise the screen asks to open the photo once with signal.
+- Like photos and comments: unsent changes stop another person signing in on this phone, and they're kept (locked) if the person's access is turned off. The **Uploads** screen lists how many comments and drawing or issue changes are waiting.
+- Nothing waiting is ever thrown away without the person tapping **Discard**.
+- The website always works online, so it needs none of this.
+
+**Real vs simulated**
+
+| Part | State |
+| --- | --- |
+| Offline outbox: encrypted, restart-safe, in order, resend-safe, conflict kept with reason, busy server retried, blocks another sign-in | Real, tested (`packages/photo-sync/test/actions.test.ts`, 4 tests) |
+| Waiting drawings shown on the photo | Real logic, tested (`packages/photo-sync/test/markup.test.ts`) |
+| Server side (resend-safe adds, removals, issue `expectedStatus` check) | Real, tested over HTTP (step 3 and step 4 tests) |
+| Phone screens (Saved on this phone, waiting notes, Try again / Discard, Uploads count) | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone** (needs a real build with Airplane Mode). |
 

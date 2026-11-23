@@ -73,3 +73,15 @@ describe("drawing on photos", () => {
     expect(d.canRedo).toBe(false);
   });
 });
+
+describe("drawings still waiting on the phone", () => {
+  it("hide marks waiting to be removed and show marks waiting to be added", async () => {
+    const { withWaitingMarks } = await import("../src/markup");
+    const base = { authorId: "a", author: "A", createdAt: "", mine: true, canRemove: true, color: "red" as const, size: 2 as const, label: null };
+    const saved = [{ ...base, id: "s1", kind: "circle" as const, points: [[0.1, 0.1], [0.2, 0.2]] as [number, number][] }, { ...base, id: "s2", kind: "rect" as const, points: [[0.3, 0.3], [0.4, 0.4]] as [number, number][] }];
+    const r = withWaitingMarks(saved, [{ body: { add: [{ kind: "arrow", color: "blue", size: 1, points: [[0, 0], [1, 1]], label: null, clientRef: "n1" }], remove: ["s1"] } }], { id: "me", name: "Me" });
+    expect(r.marks.map((m) => m.id)).toEqual(["s2", "n1"]);
+    expect([...r.waiting]).toEqual(["n1"]);
+    expect(r.marks[1]).toMatchObject({ kind: "arrow", color: "blue", canRemove: false });
+  });
+});
