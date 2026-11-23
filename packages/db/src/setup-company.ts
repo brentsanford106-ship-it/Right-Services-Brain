@@ -8,8 +8,8 @@ export interface SetupPerson {
 
 /**
  * Creates a REAL company (with the Owner / Manager / Employee roles) and adds its first owners by email.
- * Nobody gets an account here: each owner becomes a member the first time they sign in with Microsoft
- * using that email (see app.claim_invites).
+ * Nobody gets an account here: each owner signs in with Microsoft using that email and presses Accept
+ * (see app.respond_to_invite). The invite works for 14 days; running the tool again renews an expired one.
  *
  * Company walls: a company whose name matches an existing one (same web-address name, e.g. "Acme Co" and
  * "ACME, Co.") is NEVER reused silently, because that would make the new owners owners of someone else's company.
@@ -68,8 +68,14 @@ export async function setupCompany(
     const invited: string[] = [];
     for (const o of owners) {
       const email = o.email.trim().toLowerCase();
+      // An expired or declined invite doesn't count: running the tool again sends a fresh one.
+      await client.query(
+        `UPDATE member_invites SET revoked_at = now() WHERE organization_id = $1 AND email = $2::citext
+            AND accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL AND expires_at <= now()`,
+        [orgId, email],
+      );
       const { rows: already } = await client.query(
-        `SELECT 1 FROM member_invites WHERE organization_id = $1 AND email = $2::citext AND accepted_at IS NULL AND revoked_at IS NULL
+        `SELECT 1 FROM member_invites WHERE organization_id = $1 AND email = $2::citext AND accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL
          UNION ALL
          SELECT 1 FROM organization_memberships m JOIN users u ON u.id = m.user_id
           WHERE m.organization_id = $1 AND u.email = $2::citext AND m.status <> 'removed'`,

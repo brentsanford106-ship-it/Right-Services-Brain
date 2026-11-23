@@ -75,7 +75,7 @@ export function confirmDelete(app: AppState, items: GalleryItem[], done: (delete
  * Needs a connection: every share is recorded on the server first. The shared copy is the
  * display-size JPEG without location data; the temporary unencrypted copy is deleted right after.
  */
-export async function sharePhotos(app: AppState, items: GalleryItem[], jobNumber: string): Promise<void> {
+export async function sharePhotos(app: AppState, items: GalleryItem[], jobNumber: string, opts: { withDrawings?: boolean } = {}): Promise<void> {
   const ready = items.filter(isShareable);
   if (!ready.length) {
     Alert.alert("Not uploaded yet", "Photos can be shared once they've finished uploading.");
@@ -86,8 +86,13 @@ export async function sharePhotos(app: AppState, items: GalleryItem[], jobNumber
     return;
   }
   const ids = ready.map((i) => serverIdOf(i)!);
+  if (opts.withDrawings && !app.can("photos.export")) {
+    Alert.alert("Couldn't share", "Your company has turned off sending photos out of the app for your role.");
+    return;
+  }
   try {
-    await app.api.post(`/v1/orgs/${app.session!.orgId}/photos/exports`, { photoIds: ids, channel: "share_sheet" });
+    // A copy with drawings is recorded by the server when it's made, so it doesn't need this step.
+    if (!opts.withDrawings) await app.api.post(`/v1/orgs/${app.session!.orgId}/photos/exports`, { photoIds: ids, channel: "share_sheet" });
   } catch (e) {
     Alert.alert(
       "Couldn't share",
@@ -104,10 +109,10 @@ export async function sharePhotos(app: AppState, items: GalleryItem[], jobNumber
   const skipped = items.length - ready.length;
   const token = await app.api.accessToken();
   for (let n = 0; n < ids.length; n++) {
-    const file = new File(scratchDir(), `RightServices-${jobNumber.replace(/[^A-Za-z0-9_-]/g, "")}-${n + 1}.jpg`);
+    const file = new File(scratchDir(), `RightServices-${jobNumber.replace(/[^A-Za-z0-9_-]/g, "")}-${n + 1}${opts.withDrawings ? "-marked-up" : ""}.jpg`);
     try {
       deleteQuietly(file.uri);
-      await File.downloadFileAsync(`${app.api.baseUrl}/v1/orgs/${app.session!.orgId}/photos/${ids[n]}/content`, file, {
+      await File.downloadFileAsync(`${app.api.baseUrl}/v1/orgs/${app.session!.orgId}/photos/${ids[n]}/content${opts.withDrawings ? "?variant=annotated" : ""}`, file, {
         headers: { authorization: `Bearer ${token}` },
       });
       // iPhone's share sheet takes one photo at a time here; it opens again for the next one.

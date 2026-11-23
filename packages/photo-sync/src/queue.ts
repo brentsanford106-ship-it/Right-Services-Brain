@@ -27,6 +27,10 @@ export interface QueuedPhoto {
   widthPx: number | null;
   heightPx: number | null;
   byteLength: number;
+  /** "imported" = added from the phone's photo library. Missing on photos saved by older app versions = in-app camera. */
+  captureSource?: CaptureSource;
+  /** Imported photos only: false when the file had no "date taken" (capturedAt is then when it was added). */
+  capturedAtKnown?: boolean;
   /** Server id once the record exists on the server. */
   serverId: string | null;
   /** Step 1 done: the server has the photo's details. */
@@ -49,6 +53,8 @@ export interface QueuedPhoto {
   syncedAt: string | null;
 }
 
+export type CaptureSource = "in_app_camera" | "imported";
+
 export interface CaptureInput {
   orgId: string;
   jobId: string;
@@ -62,6 +68,9 @@ export interface CaptureInput {
   widthPx?: number | null;
   heightPx?: number | null;
   location?: Location | null;
+  /** Default: taken with the app's camera. */
+  captureSource?: CaptureSource;
+  capturedAtKnown?: boolean;
 }
 
 export interface PhotoEdit {
@@ -91,7 +100,7 @@ export function syncStateOf(p: QueuedPhoto, uploadingId: string | null): SyncSta
 
 export class OwnerMismatchError extends Error {
   constructor(public readonly owner: OwnerInfo) {
-    super(`This phone has photos from ${owner.displayName} that have not uploaded yet.`);
+    super(`This phone has photos or comments from ${owner.displayName} that have not been sent yet.`);
     this.name = "OwnerMismatchError";
   }
 }
@@ -106,6 +115,8 @@ export class PhotoQueue {
   private chain: Promise<unknown> = Promise.resolve();
   private listeners = new Set<() => void>();
   private owner: OwnerInfo | null = null;
+  private unsentChecks: (() => boolean)[] = [];
+  private wipeListeners: (() => void)[] = [];
 
   constructor(
     private readonly vault: Vault,
@@ -121,6 +132,21 @@ export class PhotoQueue {
     const run = this.chain.then(fn, fn);
     this.chain = run.catch(() => undefined);
     return run;
+  }
+
+  /** Other things kept in the same offline store (e.g. unsent comments) that must also block a switch of person. */
+  addUnsentCheck(fn: () => boolean): void {
+    this.unsentChecks.push(fn);
+  }
+
+  /** Anything on this phone still waiting to reach the server (photos, edits, or e.g. comments)? */
+  hasUnsent(): boolean {
+    return this.pending().length > 0 || this.unsentChecks.some((f) => f());
+  }
+
+  /** Called after the offline store was emptied (sign-out, account removed, another person signed in). */
+  onWipe(fn: () => void): void {
+    this.wipeListeners.push(fn);
   }
 
   subscribe(fn: () => void): () => void {
@@ -167,9 +193,10 @@ export class PhotoQueue {
     return this.exclusive(async () => {
       if (this.owner && this.owner.subject !== owner.subject) {
         const unsynced = [...this.items.values()].some((p) => !(p.recorded && p.stored && !p.dirty));
-        if (unsynced) throw new OwnerMismatchError(this.owner);
+        if (unsynced || this.unsentChecks.some((f) => f())) throw new OwnerMismatchError(this.owner);
         await this.vault.wipe();
         this.items.clear();
+        for (const f of this.wipeListeners) f();
       }
       this.owner = owner;
       await this.vault.putJson("owner", owner);
@@ -211,6 +238,7 @@ export class PhotoQueue {
   async capture(input: CaptureInput): Promise<QueuedPhoto> {
     if (!this.owner) throw new Error("Sign in before taking photos.");
     if (input.note && input.note.length > NOTE_MAX) throw new Error("Note is too long.");
+    if (input.capturedAtKnown === false && input.captureSource !== "imported") throw new Error("Photos taken in the app always know when they were taken.");
     const localId = this.opts.uuid().toLowerCase();
     if (!UUID.test(localId)) throw new Error("uuid generator returned an invalid id");
     const rec: QueuedPhoto = {
@@ -227,6 +255,8 @@ export class PhotoQueue {
       widthPx: input.widthPx ?? null,
       heightPx: input.heightPx ?? null,
       byteLength: input.original.byteLength,
+      captureSource: input.captureSource ?? "in_app_camera",
+      capturedAtKnown: input.capturedAtKnown ?? true,
       serverId: null,
       recorded: false,
       stored: false,
@@ -393,6 +423,7 @@ export class PhotoQueue {
       await this.vault.wipe();
       this.items.clear();
       this.owner = null;
+      for (const f of this.wipeListeners) f();
       this.emit();
     });
   }

@@ -40,11 +40,23 @@ export default function Team() {
     }
   }, [app, base, canPeople, canManage]);
 
+  const renew = (inv: TeamInvite) =>
+    void app.api
+      .post(`${base}/team/invites/${inv.id}/renew`, {})
+      .then(load)
+      .catch((e) => Alert.alert("Not changed", errorText(e)));
+
   const withdraw = (inv: TeamInvite) =>
-    Alert.alert(`Withdraw ${inv.displayName}?`, `${inv.email} won't be able to sign in.`, [
+    Alert.alert(
+      inv.displayName,
+      inv.expired
+        ? `This invite expired on ${new Date(inv.expiresAt).toLocaleDateString()}. ${inv.email} can't join until you renew it.`
+        : `${inv.email} can accept until ${new Date(inv.expiresAt).toLocaleDateString()}.`,
+      [
       { text: "Cancel", style: "cancel" },
+      { text: inv.expired ? "Renew for 14 days" : "Renew (14 days from today)", onPress: () => renew(inv) },
       {
-        text: "Withdraw",
+        text: "Withdraw invite",
         style: "destructive",
         onPress: () =>
           void app.api
@@ -52,7 +64,8 @@ export default function Team() {
             .then(load)
             .catch((e) => Alert.alert("Not changed", errorText(e))),
       },
-    ]);
+    ],
+    );
 
   useFocusEffect(
     useCallback(() => {
@@ -97,14 +110,14 @@ export default function Team() {
         {canPeople ? <Button kind="secondary" title="Add Person" onPress={() => router.push("/team/add")} /> : null}
         {invites.length > 0 ? (
           <>
-            <Text style={[s.label, { marginTop: 8 }]}>ADDED, NOT SIGNED IN YET</Text>
+            <Text style={[s.label, { marginTop: 8 }]}>ADDED, WAITING FOR THEM TO ACCEPT</Text>
             <View style={[s.card, { paddingVertical: 0 }]}>
               {invites.map((inv, i) => (
                 <Row
                   key={inv.id}
                   last={i === invites.length - 1}
                   title={inv.displayName}
-                  sub={`${inv.email} · ${inv.roles.map((r) => r.name).join(", ")}${canPeople ? " · tap to withdraw" : ""}`}
+                  sub={`${inv.email} · ${inv.roles.map((r) => r.name).join(", ")} · ${inv.expired ? "EXPIRED" : `accept by ${new Date(inv.expiresAt).toLocaleDateString()}`}${canPeople ? " · tap to renew or withdraw" : ""}`}
                   onPress={canPeople ? () => withdraw(inv) : undefined}
                 />
               ))}

@@ -7,7 +7,7 @@ body { margin: 0; }
 .shell { display: grid; min-height: 100vh; grid-template-columns: 200px 1fr; grid-template-rows: auto auto 1fr; grid-template-areas: "banner banner" "top top" "nav main"; }
 .shell.center { display: block; }
 .topbar { grid-area: top; display: flex; gap: 12px; align-items: center; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--line); }
-.topbar .link { margin-left: auto; }
+.topbar .spacer { margin-left: auto; }
 .sidenav { grid-area: nav; display: flex; flex-direction: column; padding: 12px 8px; gap: 2px; border-right: 1px solid var(--line); }
 .sidenav a { padding: 8px 12px; border-radius: 6px; color: var(--fg); text-decoration: none; }
 .sidenav a.active { background: var(--card); color: var(--accent); font-weight: 600; }
@@ -97,3 +97,93 @@ button.danger:disabled { opacity: .5; }
 .warnbox { background: var(--warnbg); color: var(--warn); padding: 8px 12px; border-radius: 6px; }
 .row .headrow { width: 100%; }
 select { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--fg); }
+
+/* Who took it: initials circles, People picker, sort */
+.person { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 999px; color: #fff; font-size: 12px; font-weight: 700; letter-spacing: .02em; flex: none; }
+img.person { object-fit: cover; padding: 0; }
+.person.sm { width: 22px; height: 22px; font-size: 10px; vertical-align: middle; }
+.person.onthumb { position: absolute; left: 6px; bottom: 6px; box-shadow: 0 0 0 2px rgba(255,255,255,.85); }
+.takenby { display: flex; align-items: center; gap: 6px; }
+.viewbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 12px; }
+.viewbar .people { position: relative; }
+.viewbar .people > summary { cursor: pointer; list-style: none; border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; background: var(--card); }
+.viewbar .people > summary::-webkit-details-marker { display: none; }
+.peoplemenu { position: absolute; z-index: 20; margin-top: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-width: 240px; max-height: 360px; overflow: auto; box-shadow: 0 8px 24px rgba(0,0,0,.15); }
+.peoplemenu label { display: flex; align-items: center; gap: 8px; padding: 6px 4px; cursor: pointer; }
+.peoplemenu .count { margin-left: auto; opacity: .7; font-size: 12px; }
+.peoplemenu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+.viewbar .sort { display: flex; align-items: center; gap: 6px; }
+.person.lg { width: 64px; height: 64px; font-size: 22px; }
+.avatarrow { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+label.button { display: inline-block; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; background: var(--card); }
+
+/* Comments (step 2) */
+.marksrow { position: absolute; top: 6px; left: 6px; display: flex; gap: 4px; }
+.commentmark, .issuemark { background: rgba(0,0,0,.65); color: #fff; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
+.comments { display: grid; gap: 8px; border-top: 1px solid var(--line, #3334); padding-top: 10px; }
+.comments .thread { display: grid; gap: 6px; }
+.comment { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; }
+.comment.reply, .comments .thread > .reply { margin-left: 28px; }
+.comment .ctext { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.comment .cactions { display: flex; gap: 10px; margin-top: 2px; }
+button.link.danger { color: var(--flag); }
+.composer { display: grid; gap: 6px; }
+.composer textarea { width: 100%; box-sizing: border-box; }
+.composer .row { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.composer select { margin-right: auto; }
+
+/* Drawing on photos (step 3) */
+.mk-stage { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
+.mk-stage .full { display: block; }
+svg.marks { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.lb-image { overflow: auto; place-items: safe center; }
+.mk-zoom { max-width: 100%; }
+.markup-editor { display: grid; gap: 10px; justify-items: center; }
+.mk-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; background: var(--card); padding: 8px; border-radius: 10px; line-height: normal; }
+.mk-group { display: flex; gap: 4px; align-items: center; }
+.swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #8888; padding: 0; }
+.swatch.on { outline: 3px solid var(--accent); outline-offset: 1px; }
+.mk-viewbar { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; background: rgba(0,0,0,.6); padding: 6px; border-radius: 10px; }
+.about-mark { display: flex; gap: 6px; align-items: center; }
+
+/* Issues to fix (step 4) */
+.issuemark { background: #b45309 !important; }
+.issues { display: grid; gap: 8px; border-top: 1px solid var(--line, #3334); padding-top: 10px; }
+.issues > .ihead, .issue .ihead { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.issue { display: grid; gap: 4px; border: 1px solid var(--line); border-left: 4px solid #b45309; border-radius: 8px; padding: 8px 10px; background: var(--card); }
+.issue.resolved { border-left-color: #15803d; opacity: .85; }
+.issue.awaiting_review { border-left-color: #2563eb; }
+.issue .ititle { overflow-wrap: anywhere; }
+.issue .idetails { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.istatus { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: #b4530922; color: #b45309; white-space: nowrap; }
+.istatus.in_progress { background: #a16207; color: #fff; }
+.istatus.awaiting_review { background: #2563eb22; color: #2563eb; }
+.istatus.resolved { background: #15803d22; color: #15803d; }
+.istatus.sentback { background: var(--flag); color: #fff; }
+.iactions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.iform { display: grid; gap: 6px; }
+.iform input, .iform textarea { width: 100%; box-sizing: border-box; }
+.iform .row { display: flex; gap: 6px; justify-content: flex-end; }
+.ihistory { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.ihistory .inote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fixpick { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; max-height: 240px; overflow: auto; }
+.fixpick button { display: grid; gap: 2px; padding: 2px; border: 2px solid transparent; border-radius: 6px; width: 100%; }
+.fixpick button.on { border-color: var(--accent); }
+.fixpick .thumb { width: 100%; aspect-ratio: 1; object-fit: cover; }
+.issuelist { display: grid; gap: 10px; }
+.igroup { display: grid; gap: 8px; }
+.igroup h3 { margin: 6px 0 0; font-size: 15px; }
+
+/* Alerts (step 5) */
+.bell { position: relative; }
+.bellbtn { position: relative; font-size: 18px; padding: 4px 10px; background: transparent; border: 0; cursor: pointer; }
+.bellcount { position: absolute; top: -2px; right: -2px; background: #d40e3b; color: #fff; border-radius: 999px; font-size: 11px; font-weight: 700; padding: 1px 5px; }
+.bellmenu { position: absolute; right: 0; top: 36px; z-index: 50; width: min(380px, 92vw); max-height: 70vh; overflow: auto; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.18); padding: 8px; }
+.bellhead { display: flex; justify-content: space-between; align-items: center; padding: 4px 6px 8px; }
+.bellmenu ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.bellmenu li button { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: start; width: 100%; text-align: left; background: transparent; border: 0; padding: 8px 6px; border-radius: 8px; cursor: pointer; color: inherit; }
+.bellmenu li button:hover { background: var(--line); }
+.bellmenu li.unread button { background: #d40e3b14; font-weight: 600; }
+.bellmenu .btext { display: grid; gap: 2px; overflow-wrap: anywhere; }
+.alertsettings { list-style: none; padding: 0; display: grid; gap: 6px; }
+.alertsettings label { display: flex; gap: 8px; align-items: center; }

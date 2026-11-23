@@ -4,6 +4,10 @@ import { router, useFocusEffect } from "expo-router";
 import { useApp, useQueueVersion } from "../src/state";
 import { Button, C, Chip, DevBanner, s } from "../src/ui";
 import { useTheme, type ThemePref } from "../src/theme";
+import { PersonBadge } from "../src/photos";
+import { chooseProfilePicture } from "../src/importPhotos";
+import { ApiError, NetworkError } from "@rsb/photo-sync";
+import { AlertSettings } from "../src/alerts";
 
 interface TeamMember {
   membershipId: string;
@@ -32,6 +36,30 @@ export default function Settings() {
       if (seesTeam) app.api.get<{ items: TeamMember[] }>(`${base}/team/members`).then((r) => setTeam(r.items), () => setTeam(null));
     }, [app.api, base, seesTeam]),
   );
+
+  const [pictureBusy, setPictureBusy] = useState(false);
+  const run = (from: "library" | "camera") => {
+    setPictureBusy(true);
+    void chooseProfilePicture(app, from).finally(() => setPictureBusy(false));
+  };
+  const removePicture = async () => {
+    setPictureBusy(true);
+    try {
+      await app.api.delete(`${base}/me/avatar`);
+      await app.refreshPermissions();
+    } catch (e) {
+      Alert.alert("Not removed", e instanceof NetworkError ? "This needs a connection." : e instanceof ApiError ? e.message : "Please try again.");
+    } finally {
+      setPictureBusy(false);
+    }
+  };
+  const changePicture = () =>
+    Alert.alert("Profile picture", undefined, [
+      { text: "Take a selfie", onPress: () => run("camera") },
+      { text: "Choose from library", onPress: () => run("library") },
+      ...(app.session?.avatarAt ? [{ text: "Remove picture", style: "destructive" as const, onPress: () => void removePicture() }] : []),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
 
   const changeKeep = async (change: { deletedPhotoRetentionDays: number } | { signInEveryDays: number }) => {
     setSaving(true);
@@ -73,9 +101,19 @@ export default function Settings() {
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
         <View style={s.card}>
           <Text style={s.label}>Signed in as</Text>
-          <Text style={{ fontSize: 17, fontWeight: "700", color: C.text }}>{app.session?.displayName}</Text>
-          <Text style={s.muted}>{app.session?.orgName}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <PersonBadge personKey="me" name={app.session?.displayName ?? null} personId={app.session?.membershipId ?? null} avatarAt={app.session?.avatarAt ?? null} size={56} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 17, fontWeight: "700", color: C.text }}>{app.session?.displayName}</Text>
+              <Text style={s.muted}>{app.session?.orgName}</Text>
+            </View>
+          </View>
+          <Pressable accessibilityRole="button" hitSlop={8} style={{ marginTop: 10, alignSelf: "flex-start" }} disabled={pictureBusy} onPress={changePicture}>
+            <Text style={{ color: C.link, fontWeight: "600" }}>{pictureBusy ? "Saving…" : app.session?.avatarAt ? "Change profile picture" : "Add a profile picture"}</Text>
+          </Pressable>
+          <Text style={[s.muted, { marginTop: 4 }]}>Shown on the photos you take, instead of your initials. Everyone in your company can see it.</Text>
         </View>
+        <AlertSettings />
         <View style={s.card}>
           <Text style={s.label}>Appearance</Text>
           <View style={{ flexDirection: "row" }}>

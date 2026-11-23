@@ -2,7 +2,7 @@ import React from "react";
 import { Alert, FlatList, Pressable, Text, View } from "react-native";
 import { router } from "expo-router";
 import { syncStateOf } from "@rsb/photo-sync";
-import { useApp, useQueueVersion, useSyncStatus } from "../src/state";
+import { useActionsVersion, useApp, useCommentsVersion, useQueueVersion, useSyncStatus } from "../src/state";
 import { LocalImage } from "../src/photos";
 import { Button, C, DevBanner, Empty, SyncPill, s } from "../src/ui";
 
@@ -10,7 +10,10 @@ import { Button, C, DevBanner, Empty, SyncPill, s } from "../src/ui";
 export default function Sync() {
   const app = useApp();
   useQueueVersion();
+  useCommentsVersion();
+  useActionsVersion();
   const st = useSyncStatus();
+  const others = { comments: app.comments.counts(), changes: app.actions.counts() };
   const pending = app.queue.pending();
   const counts = app.queue.counts();
 
@@ -38,6 +41,15 @@ export default function Sync() {
                 {st.lastRunAt ? ` Last check ${new Date(st.lastRunAt).toLocaleTimeString()}.` : ""}
                 {st.lastStop === "sign_in_required" ? " Sign-in expired: open Settings and sign in again." : ""}
               </Text>
+              {others.comments.waiting + others.comments.needsAttention + others.changes.waiting + others.changes.needsAttention > 0 ? (
+                <Text style={[s.muted, { marginTop: 6 }]}>
+                  Also waiting: {[
+                    others.comments.waiting + others.comments.needsAttention ? `${others.comments.waiting + others.comments.needsAttention} comment${others.comments.waiting + others.comments.needsAttention === 1 ? "" : "s"}` : "",
+                    others.changes.waiting + others.changes.needsAttention ? `${others.changes.waiting + others.changes.needsAttention} drawing or issue change${others.changes.waiting + others.changes.needsAttention === 1 ? "" : "s"}` : "",
+                  ].filter(Boolean).join(", ")}.
+                  {others.comments.needsAttention + others.changes.needsAttention ? " Some need you to look at them on their photo." : ""}
+                </Text>
+              ) : null}
               <Button title={st.running ? "Uploading…" : "Upload now"} busy={st.running} style={{ marginTop: 12 }} onPress={app.syncNow} />
             </View>
             <View style={[s.card, { backgroundColor: C.warnSoft, borderColor: C.warnSoft }]}>

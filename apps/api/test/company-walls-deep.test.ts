@@ -1,3 +1,4 @@
+import { DEV_AUTH_ISSUER } from "@rsb/contracts";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import sharp from "sharp";
 import { setupCompany } from "@rsb/db";
@@ -153,8 +154,17 @@ describe("company walls: the database rules themselves", () => {
         "member_invites:INSERT,SELECT",
         "membership_roles:DELETE,INSERT,SELECT,UPDATE",
         `mileage_records:${rw}`,
+        // 0022: alerts are add-only (only "read" can change); alert settings can only change the muted list.
+        "notification_preferences:INSERT,SELECT", "notifications:INSERT,SELECT",
         "organization_memberships:SELECT", "organizations:SELECT", "permissions:SELECT",
-        `photo_flags:${rw}`, `photos:${rw}`, `receipts:${rw}`,
+        // 0019: comments are add-only; only their wording and edited/deleted markers can change (column grants below).
+        "photo_comment_mentions:INSERT,SELECT", "photo_comment_revisions:INSERT,SELECT", "photo_comments:INSERT,SELECT",
+        `photo_flags:${rw}`,
+        // 0020: marks on photos are add-only; they can only be marked removed (column grants below).
+        // 0021: issues; their history is add-only, and only an issue's working fields can change (column grants below).
+        "photo_issue_events:INSERT,SELECT", "photo_issues:INSERT,SELECT",
+        "photo_markups:INSERT,SELECT",
+        `photos:${rw}`, `receipts:${rw}`,
         "role_permissions:DELETE,INSERT,SELECT,UPDATE", "roles:DELETE,INSERT,SELECT,UPDATE",
         "users:SELECT",
         `vehicle_assignments:${rw}`, `vehicles:${rw}`,
@@ -166,11 +176,32 @@ describe("company walls: the database rules themselves", () => {
           ORDER BY 1`,
       );
       expect(cols.map((r) => r.x)).toEqual([
+        "member_invites.expires_at:UPDATE",
         "member_invites.revoked_at:UPDATE",
+        "notification_preferences.muted_kinds:UPDATE",
+        "notification_preferences.updated_at:UPDATE",
+        "notifications.read_at:UPDATE",
+        // 0018: profile pictures. The API only lets people change their own (or a team manager remove one).
+        "organization_memberships.avatar_storage_key:UPDATE",
+        "organization_memberships.avatar_updated_at:UPDATE",
         "organization_memberships.job_title:UPDATE",
         "organization_memberships.status:UPDATE",
         "organizations.deleted_photo_retention_days:UPDATE",
         "organizations.sign_in_every_days:UPDATE",
+        "photo_comments.body:UPDATE",
+        "photo_comments.deleted_at:UPDATE",
+        "photo_comments.deleted_by_membership_id:UPDATE",
+        "photo_comments.edited_at:UPDATE",
+        "photo_issues.assignee_membership_id:UPDATE",
+        "photo_issues.details:UPDATE",
+        "photo_issues.resolved_at:UPDATE",
+        "photo_issues.resolved_by_membership_id:UPDATE",
+        "photo_issues.status:UPDATE",
+        "photo_issues.submitted_by_membership_id:UPDATE",
+        "photo_issues.title:UPDATE",
+        "photo_issues.updated_at:UPDATE",
+        "photo_markups.removed_at:UPDATE",
+        "photo_markups.removed_by_membership_id:UPDATE",
       ]);
     } finally {
       await admin.end();
@@ -187,11 +218,13 @@ describe("company walls: the database rules themselves", () => {
           WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema') ORDER BY 1`,
       );
       expect(rows.map((r) => `${r.name}${r.app ? " (app may call)" : ""}`)).toEqual([
-        "app.claim_invites (app may call)",
+        "app.my_invites (app may call)",
         "app.photos_past_retention (app may call)",
         "app.purge_deleted_photo (app may call)",
+        "app.register_invited_user (app may call)",
         "app.require_an_owner",
         "app.resolve_principal (app may call)",
+        "app.respond_to_invite (app may call)",
       ]);
       for (const r of rows) {
         expect({ fn: r.name, public: r.pub }).toEqual({ fn: r.name, public: false });
@@ -208,7 +241,8 @@ describe("company walls: the database rules themselves", () => {
     try {
       await c.query("BEGIN");
       await c.query("SELECT set_config('app.current_user_id', $1, true), set_config('app.current_org_id', $2, true)", [riley, ORG_B]);
-      const { rows } = await c.query<{ email: string }>("SELECT email FROM users ORDER BY email");
+      // Seeded people only: other test files may have added (and removed) people of their own in company B.
+      const { rows } = await c.query<{ email: string }>("SELECT email FROM users WHERE idp_issuer = $1 ORDER BY email", [DEV_AUTH_ISSUER]);
       const visible = rows.map((r) => r.email);
       expect(visible.some((e) => e.endsWith("@harborpine.example.com"))).toBe(false);
       const expected = F.users.filter((u) => u.memberships.some((m) => m.orgId === ORG_B)).map((u) => u.email).sort();
@@ -240,7 +274,11 @@ describe("company walls: the database rules themselves", () => {
     let uid = "";
     try {
       await c.query("BEGIN");
-      uid = (await c.query<{ id: string }>("SELECT app.claim_invites('https://walls.example.com', $1, $2, 'Slipped') AS id", [uuid(), email])).rows[0]!.id;
+      const sub = uuid();
+      uid = (await c.query<{ id: string }>("SELECT app.register_invited_user('https://walls.example.com', $1, $2, 'Slipped') AS id", [sub, email])).rows[0]!.id;
+      const inv = (await c.query<{ invite_id: string }>("SELECT invite_id FROM app.my_invites('https://walls.example.com', $1, $2)", [sub, email])).rows;
+      expect(inv).toHaveLength(1);
+      expect((await c.query("SELECT app.respond_to_invite('https://walls.example.com', $1, $2, $3, true) AS o", [sub, email, inv[0]!.invite_id])).rows[0].o).toBe("accepted");
       await c.query("COMMIT");
     } finally {
       await c.end();

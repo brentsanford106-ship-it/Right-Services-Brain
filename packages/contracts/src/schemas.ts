@@ -52,9 +52,21 @@ export const MembershipSummary = z.object({
   organizationName: z.string(),
   membershipId: Uuid,
 });
+/** A company that added this person by email. They join only when they press Accept. */
+export const PendingInvite = z.object({
+  inviteId: Uuid,
+  organizationId: Uuid,
+  organizationName: z.string(),
+  roles: z.array(z.string()),
+  invitedBy: z.string(),
+  expiresAt: z.string(),
+});
+export type PendingInvite = z.infer<typeof PendingInvite>;
 export const MeResponse = z.object({
   user: z.object({ id: Uuid, displayName: z.string(), email: z.string() }),
   memberships: z.array(MembershipSummary),
+  /** Invites waiting for Accept or Decline. */
+  invites: z.array(PendingInvite),
 });
 export type MeResponse = z.infer<typeof MeResponse>;
 
@@ -65,6 +77,9 @@ export const OrgContextResponse = z.object({
   permissions: z.array(z.string()),
   /** People must sign in again after this many days (real sign-in; enforced by the apps when online). */
   signInEveryDays: z.number().int(),
+  /** Your display name and profile picture in this company (null = none, initials are shown). */
+  displayName: z.string(),
+  avatarAt: z.string().nullable(),
 });
 export type OrgContextResponse = z.infer<typeof OrgContextResponse>;
 
@@ -138,8 +153,29 @@ export const Photo = z.object({
   flaggedAt: z.string().nullable(),
   capturedAt: z.string(),
   uploadStatus: z.enum(["pending", "stored", "rejected"]),
+  /** Name of the person who uploaded the photo. */
   uploadedBy: z.string(),
+  /** The person who took the photo. null = unknown (e.g. an imported photo). Kept after they leave the company. */
+  photographerId: Uuid.nullable(),
+  photographer: z.string().nullable(),
+  /** True when the person asking took this photo ("Photos I took"). */
+  takenByMe: z.boolean(),
+  /** True when the person asking uploaded this photo (they may edit and delete their own uploads). */
+  uploadedByMe: z.boolean(),
+  /** How the photo got into the app. */
+  captureSource: z.enum(["in_app_camera", "imported", "web_upload"]),
+  /** false = the file had no "date taken"; capturedAt is when it was added to the app. */
+  capturedAtKnown: z.boolean(),
+  /** When the photographer last changed their profile picture; null = no picture (show initials). */
+  photographerAvatarAt: z.string().nullable(),
   openFlags: z.number().int(),
+  /** Comments and replies that are not deleted. */
+  commentCount: z.number().int(),
+  lastCommentAt: z.string().nullable(),
+  /** Marks drawn on the photo (not removed). */
+  markupCount: z.number().int(),
+  /** Issues on this photo that aren't resolved yet ("To fix"). */
+  openIssueCount: z.number().int(),
   latitude: z.number().nullable(),
   longitude: z.number().nullable(),
   widthPx: z.number().int().nullable(),
@@ -177,6 +213,10 @@ export const CreatePhotoRequest = z
     flagged: z.boolean().default(false),
     capturedAt: z.iso.datetime({ offset: true }),
     contentType: z.enum(["image/jpeg", "image/png", "image/heic"]),
+    /** "imported" = added from the phone's photo library (needs photos.import). Default: taken in the app's camera. */
+    captureSource: z.enum(["in_app_camera", "imported"]).default("in_app_camera"),
+    /** Imported photos only: false when the file had no "date taken" and capturedAt is just when it was added. */
+    capturedAtKnown: z.boolean().default(true),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
     locationAccuracyM: z.number().min(0).max(100_000).optional(),
@@ -184,6 +224,10 @@ export const CreatePhotoRequest = z
   .refine((v) => (v.latitude === undefined) === (v.longitude === undefined), {
     path: ["longitude"],
     message: "latitude and longitude must be sent together",
+  })
+  .refine((v) => v.captureSource === "imported" || v.capturedAtKnown, {
+    path: ["capturedAtKnown"],
+    message: "photos taken in the app always know when they were taken",
   });
 export type CreatePhotoRequest = z.infer<typeof CreatePhotoRequest>;
 
@@ -194,7 +238,8 @@ export const PHOTO_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
  * (Authorization header required on every download). There are no bearer
  * URLs: a copied link without the caller's token returns 401.
  */
-export const PhotoContentQuery = z.strictObject({ variant: z.enum(["preview", "original"]).default("preview") });
+/** "annotated": a copy with the drawings burned in, made on request for sharing (the stored photo never changes). */
+export const PhotoContentQuery = z.strictObject({ variant: z.enum(["thumb", "preview", "original", "annotated"]).default("preview") });
 
 /** Search/recall photos. All filters are optional and combine with AND. */
 export const PhotoSearchQuery = z
@@ -213,6 +258,167 @@ export const PhotoSearchQuery = z
   .refine((v) => (v.lat === undefined) === (v.lng === undefined), { path: ["lng"], message: "lat and lng must be sent together" })
   .refine((v) => !v.from || !v.to || v.from <= v.to, { path: ["to"], message: "must be on or after from" });
 export type PhotoSearchQuery = z.input<typeof PhotoSearchQuery>;
+
+// ---------------------------------------------------------------- photo comments (step 2)
+export const CommentParams = z.strictObject({ orgId: Uuid, commentId: Uuid });
+export const COMMENT_MAX = 2000;
+const CommentBody = z.string().trim().min(1, "write something").max(COMMENT_MAX);
+export const CreatePhotoCommentRequest = z.strictObject({
+  /** Made on the phone so a comment sent twice (weak signal) is only saved once. */
+  clientRef: Uuid,
+  body: CommentBody,
+  /** Reply to this top-level comment. Replies are one level deep. */
+  parentId: Uuid.nullable().optional(),
+  /** People @mentioned. Each must be someone who can see the job. */
+  mentionIds: z.array(Uuid).max(20).default([]),
+  /** Comment on one mark drawn on this photo. */
+  markupId: Uuid.nullable().optional(),
+});
+export type CreatePhotoCommentRequest = z.infer<typeof CreatePhotoCommentRequest>;
+export const UpdatePhotoCommentRequest = z.strictObject({ body: CommentBody, mentionIds: z.array(Uuid).max(20).default([]) });
+export type UpdatePhotoCommentRequest = z.infer<typeof UpdatePhotoCommentRequest>;
+export const PhotoComment = z.object({
+  id: Uuid,
+  photoId: Uuid,
+  parentId: Uuid.nullable(),
+  authorId: Uuid,
+  author: z.string(),
+  authorAvatarAt: z.string().nullable(),
+  /** null when the comment was deleted ("Comment deleted"). */
+  body: z.string().nullable(),
+  mentions: z.array(z.object({ id: Uuid, name: z.string() })),
+  /** The mark this comment is about, if any. */
+  markupId: Uuid.nullable(),
+  createdAt: z.string(),
+  editedAt: z.string().nullable(),
+  deletedAt: z.string().nullable(),
+  deletedBy: z.string().nullable(),
+  mine: z.boolean(),
+  /** For hiding buttons only; the server decides. */
+  canEdit: z.boolean(),
+  canDelete: z.boolean(),
+});
+export type PhotoComment = z.infer<typeof PhotoComment>;
+// ---------------------------------------------------------------- drawing on photos (step 3)
+export const MarkupKind = z.enum(["circle", "arrow", "pen", "rect", "text", "pin"]);
+export const MarkupColor = z.enum(["red", "yellow", "green", "blue", "white", "black"]);
+const Fraction = z.number().finite().min(0).max(1);
+export const MarkupShapeInput = z
+  .strictObject({
+    clientRef: Uuid,
+    kind: MarkupKind,
+    color: MarkupColor,
+    size: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    points: z.array(z.tuple([Fraction, Fraction])).min(1).max(2000),
+    label: z.string().trim().max(200).nullable().optional(),
+  })
+  .superRefine((s, ctx) => {
+    const n = s.points.length;
+    const ok = s.kind === "pen" ? n >= 2 : s.kind === "text" || s.kind === "pin" ? n === 1 : n === 2;
+    if (!ok) ctx.addIssue({ code: "custom", path: ["points"], message: `wrong number of points for a ${s.kind}` });
+    const label = s.label?.trim() ?? "";
+    if (s.kind === "text" && !label) ctx.addIssue({ code: "custom", path: ["label"], message: "text needs words" });
+    if (s.kind !== "text" && s.kind !== "pin" && label) ctx.addIssue({ code: "custom", path: ["label"], message: "only text and pins have words" });
+  });
+export const MarkupChangesRequest = z
+  .strictObject({
+    add: z.array(MarkupShapeInput).max(200).default([]),
+    remove: z.array(Uuid).max(500).default([]),
+  })
+  .refine((v) => v.add.length + v.remove.length > 0, { message: "nothing to save" });
+export type MarkupChangesRequest = z.infer<typeof MarkupChangesRequest>;
+export const PhotoMarkup = z.object({
+  id: Uuid,
+  kind: MarkupKind,
+  color: MarkupColor,
+  size: z.number().int(),
+  points: z.array(z.tuple([z.number(), z.number()])),
+  label: z.string().nullable(),
+  authorId: Uuid,
+  author: z.string(),
+  createdAt: z.string(),
+  mine: z.boolean(),
+  /** For hiding buttons only; the server decides. */
+  canRemove: z.boolean(),
+});
+export type PhotoMarkup = z.infer<typeof PhotoMarkup>;
+
+// ---------------------------------------------------------------- issues to fix (step 4)
+export const IssueParams = z.strictObject({ orgId: Uuid, issueId: Uuid });
+export const IssueStatus = z.enum(["open", "in_progress", "awaiting_review", "resolved"]);
+export type IssueStatus = z.infer<typeof IssueStatus>;
+export const CreatePhotoIssueRequest = z.strictObject({
+  clientRef: Uuid,
+  title: z.string().trim().min(1, "say what needs fixing").max(200),
+  details: z.string().trim().max(2000).nullable().optional(),
+  /** The mark on the photo this issue is about (for example, a red circle). */
+  markupId: Uuid.nullable().optional(),
+  /** Managers may assign it straight away. Reports from others go to the job's Issues list unassigned. */
+  assigneeId: Uuid.nullable().optional(),
+});
+export type CreatePhotoIssueRequest = z.infer<typeof CreatePhotoIssueRequest>;
+export const IssueAction = z.enum(["assign", "start", "submit", "approve", "send_back", "reopen", "edit"]);
+export type IssueAction = z.infer<typeof IssueAction>;
+export const IssueActionRequest = z.strictObject({
+  /** Made on the phone so the same action sent twice is only applied once. */
+  clientRef: Uuid,
+  action: IssueAction,
+  /** The status the person saw. If the issue has changed since, nothing happens and the answer says so. */
+  expectedStatus: IssueStatus.optional(),
+  note: z.string().trim().max(2000).nullable().optional(),
+  assigneeId: Uuid.nullable().optional(),
+  /** "After" photos showing the fix (on the same job). */
+  fixPhotoIds: z.array(Uuid).max(20).default([]),
+  title: z.string().trim().min(1).max(200).optional(),
+  details: z.string().trim().max(2000).nullable().optional(),
+});
+export type IssueActionRequest = z.infer<typeof IssueActionRequest>;
+export const IssueListQuery = z.strictObject({
+  /** "active" = everything not resolved yet. */
+  status: z.enum(["open", "in_progress", "awaiting_review", "resolved", "active"]).optional(),
+  assigned: z.enum(["me", "none"]).optional(),
+});
+export const PhotoIssue = z.object({
+  id: Uuid,
+  jobId: Uuid,
+  jobNumber: z.string(),
+  photoId: Uuid,
+  photoDeleted: z.boolean(),
+  markupId: Uuid.nullable(),
+  title: z.string(),
+  details: z.string().nullable(),
+  status: IssueStatus,
+  assigneeId: Uuid.nullable(),
+  assignee: z.string().nullable(),
+  createdById: Uuid,
+  createdBy: z.string(),
+  submittedBy: z.string().nullable(),
+  resolvedBy: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  /** The last thing that happened (for example "sent_back"), for showing "Sent back". */
+  lastEvent: z.string(),
+  fixPhotoIds: z.array(Uuid),
+  /** What the person asking may do. For hiding buttons only; the server decides. */
+  can: z.object({ assign: z.boolean(), start: z.boolean(), submit: z.boolean(), approve: z.boolean(), sendBack: z.boolean(), reopen: z.boolean(), edit: z.boolean() }),
+});
+export type PhotoIssue = z.infer<typeof PhotoIssue>;
+export const PhotoIssueEvent = z.object({
+  id: Uuid,
+  kind: z.string(),
+  actor: z.string(),
+  fromStatus: IssueStatus.nullable(),
+  toStatus: IssueStatus.nullable(),
+  note: z.string().nullable(),
+  assignee: z.string().nullable(),
+  photoId: Uuid.nullable(),
+  createdAt: z.string(),
+});
+export type PhotoIssueEvent = z.infer<typeof PhotoIssueEvent>;
+
+export const JobPerson = z.object({ id: Uuid, name: z.string(), avatarAt: z.string().nullable(), me: z.boolean() });
+export type JobPerson = z.infer<typeof JobPerson>;
 
 export const CreatePhotoFlagRequest = z.strictObject({ reason: Text(1000) });
 export const ResolvePhotoFlagRequest = z.strictObject({ resolutionNote: OptionalText(1000) });
@@ -345,6 +551,9 @@ export const SetMemberRolesRequest = z.strictObject({ roleIds: z.array(Uuid).min
 export type SetMemberRolesRequest = z.infer<typeof SetMemberRolesRequest>;
 
 export const InviteParams = z.strictObject({ orgId: Uuid, inviteId: Uuid });
+export const MyInviteParams = z.strictObject({ inviteId: Uuid });
+/** Days an invite stays usable (it can be renewed by the owner). */
+export const INVITE_VALID_DAYS = 14;
 export const CreateInviteRequest = z.strictObject({
   email: z.string().trim().toLowerCase().pipe(z.email("Enter a valid email address.").max(320)),
   displayName: z.string().trim().min(1).max(200),
@@ -360,6 +569,9 @@ export const TeamInvite = z.object({
   roles: z.array(z.object({ id: Uuid, name: z.string() })),
   invitedBy: z.string(),
   createdAt: z.string(),
+  /** After this, the person can no longer accept it; an owner can renew it. */
+  expiresAt: z.string(),
+  expired: z.boolean(),
 });
 export type TeamInvite = z.infer<typeof TeamInvite>;
 export const SetMemberStatusRequest = z.strictObject({ status: z.enum(["active", "suspended", "removed"]) });
@@ -392,3 +604,41 @@ export const DevLoginRequest = z.strictObject({ subject: z.string().regex(/^dev-
 export const DevLoginResponse = z.object({ accessToken: z.string(), expiresIn: z.number().int(), tokenType: z.literal("Bearer") });
 export const DevUser = z.object({ subject: z.string(), displayName: z.string(), description: z.string() });
 export type DevUser = z.infer<typeof DevUser>;
+
+// ---------------------------------------------------------------- in-app alerts (step 5)
+export const NotificationKind = z.enum([
+  "mention", "reply", "photo_comment",
+  "issue_assigned", "issue_reported", "issue_submitted", "issue_approved", "issue_sent_back", "issue_reopened",
+]);
+export type NotificationKind = z.infer<typeof NotificationKind>;
+export const NotificationListQuery = z.strictObject({
+  unread: z.enum(["true", "false"]).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export const Notification = z.object({
+  id: Uuid,
+  kind: NotificationKind,
+  actor: z.string(),
+  actorId: Uuid,
+  actorAvatarAt: z.string().nullable(),
+  jobId: Uuid,
+  jobNumber: z.string(),
+  photoId: Uuid,
+  commentId: Uuid.nullable(),
+  issueId: Uuid.nullable(),
+  issueTitle: z.string().nullable(),
+  /** The start of the comment, or null when it was deleted. */
+  snippet: z.string().nullable(),
+  createdAt: z.string(),
+  readAt: z.string().nullable(),
+});
+export type Notification = z.infer<typeof Notification>;
+export const MarkNotificationsReadRequest = z.strictObject({
+  ids: z.array(Uuid).max(200).optional(),
+  all: z.boolean().optional(),
+}).refine((v) => !!v.all !== !!v.ids?.length, "send either ids or all: true");
+export const NotificationSettings = z.strictObject({
+  /** Alert kinds this person switched off. */
+  muted: z.array(NotificationKind).max(20),
+});
+export type NotificationSettings = z.infer<typeof NotificationSettings>;

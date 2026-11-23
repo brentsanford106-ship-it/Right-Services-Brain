@@ -90,4 +90,6 @@ export interface TeamInvite {
   roles: { id: string; name: string }[];
   invitedBy: string;
   createdAt: string;
+  expiresAt: string;
+  expired: boolean;
 }

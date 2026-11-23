@@ -47,7 +47,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const admin = await adminClient();
   try {
-    await admin.query("UPDATE member_invites SET revoked_at = now() WHERE accepted_at IS NULL AND revoked_at IS NULL");
+    await admin.query("UPDATE member_invites SET revoked_at = now() WHERE accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL");
     await admin.query("UPDATE organization_memberships m SET status = 'removed' FROM users u WHERE u.id = m.user_id AND u.idp_issuer = $1", [ISSUER]);
   } finally {
     await admin.end();
@@ -98,6 +98,11 @@ describe("production token checker", () => {
     const good = await token({ sub: "sub-oidc-2", email: "oidc.person@example.com", name: "Oidc P." });
     const me = await t.app.inject({ method: "GET", url: "/v1/me", headers: { authorization: `Bearer ${good}` } });
     expect(me.statusCode).toBe(200);
-    expect(JSON.parse(me.body).memberships.map((m: { organizationId: string }) => m.organizationId)).toEqual([ORG_A]);
+    const invites = JSON.parse(me.body).invites as { inviteId: string; organizationId: string }[];
+    expect(invites.map((i) => i.organizationId)).toEqual([ORG_A]);
+    const ok = await t.app.inject({ method: "POST", url: `/v1/invites/${invites[0]!.inviteId}/accept`, headers: { authorization: `Bearer ${good}` } });
+    expect(ok.statusCode).toBe(200);
+    const after = await t.app.inject({ method: "GET", url: "/v1/me", headers: { authorization: `Bearer ${good}` } });
+    expect(JSON.parse(after.body).memberships.map((m: { organizationId: string }) => m.organizationId)).toEqual([ORG_A]);
   });
 });

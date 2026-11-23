@@ -27,9 +27,10 @@ export class DevAuth implements TokenVerifier {
   }
 
   /** ttlSeconds is configurable only so tests can mint expired tokens. */
-  async issue(subject: string, ttlSeconds: number = DevAuth.TTL_SECONDS): Promise<string> {
+  async issue(subject: string, ttlSeconds: number = DevAuth.TTL_SECONDS, email?: string): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
-    return new SignJWT({})
+    // The made-up person's email rides along so invites can be tried with test people (development only).
+    return new SignJWT(email ? { email } : {})
       .setProtectedHeader({ alg: "ES256", typ: "JWT" })
       .setIssuer(DEV_AUTH_ISSUER)
       .setAudience(DEV_AUTH_AUDIENCE)
@@ -47,7 +48,8 @@ export class DevAuth implements TokenVerifier {
         algorithms: ["ES256"],
         requiredClaims: ["sub", "exp"],
       });
-      return typeof payload.sub === "string" ? { issuer: DEV_AUTH_ISSUER, subject: payload.sub } : null;
+      if (typeof payload.sub !== "string") return null;
+      return { issuer: DEV_AUTH_ISSUER, subject: payload.sub, ...(typeof payload.email === "string" ? { email: payload.email } : {}) };
     } catch {
       return null;
     }

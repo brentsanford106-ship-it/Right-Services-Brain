@@ -1,10 +1,11 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { Alert, FlatList, Pressable, RefreshControl, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ApiError, NetworkError } from "@rsb/photo-sync";
+import { ApiError, NetworkError, SORT_LABELS, applyPeople, peopleOf, sortByView, type Sort } from "@rsb/photo-sync";
 import { useApp, useQueueVersion, useSyncStatus, type Job } from "../../../src/state";
-import { applyFilter, mergeGallery, LocalImage, ServerImage, type Filter, type GalleryItem, type ServerPhoto } from "../../../src/photos";
+import { applyFilter, mergeGallery, LocalImage, PersonBadge, ServerImage, type Filter, type GalleryItem, type ServerPhoto } from "../../../src/photos";
 import { confirmDelete, sharePhotos } from "../../../src/photoActions";
+import { importFromLibrary } from "../../../src/importPhotos";
 import { C, Chip, DevBanner, Empty, FlagBadge, JOB_STATUSES, StatusPill, SyncPill, s } from "../../../src/ui";
 
 const FILTERS: { value: Filter; label: string }[] = [
@@ -13,6 +14,8 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "during", label: "During" },
   { value: "after", label: "After" },
   { value: "flagged", label: "⚑ Flagged" },
+  { value: "comments", label: "💬 Comments" },
+  { value: "issues", label: "🔧 To fix" },
 ];
 
 export default function JobGallery() {
@@ -22,6 +25,9 @@ export default function JobGallery() {
   const { jobId, jobNumber, title } = useLocalSearchParams<{ jobId: string; jobNumber?: string; title?: string }>();
   const [server, setServer] = useState<ServerPhoto[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  // Who took it: empty = everyone; "me" = Photos I took; otherwise people's ids (several allowed).
+  const [people, setPeople] = useState<Set<string>>(new Set());
+  const [sort, setSort] = useState<Sort>("oldest");
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -70,8 +76,22 @@ export default function JobGallery() {
     }, [load]),
   );
 
-  const all = mergeGallery(app.queue, jobId, server, sync.uploadingId);
-  const items = useMemo(() => applyFilter(all, filter), [all, filter]);
+  const all = mergeGallery(app.queue, jobId, server, sync.uploadingId, { name: app.session?.displayName ?? "", membershipId: app.session?.membershipId ?? null, avatarAt: app.session?.avatarAt ?? null });
+  const items = useMemo(() => sortByView(applyFilter(applyPeople(all, people), filter), sort), [all, people, filter, sort]);
+  const peopleList = peopleOf(all);
+  const togglePerson = (key: string) =>
+    setPeople((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const chooseSort = () =>
+    Alert.alert("Sort photos", undefined, [
+      ...(Object.keys(SORT_LABELS) as Sort[]).map((k) => ({ text: `${k === sort ? "✓ " : ""}${SORT_LABELS[k]}`, onPress: () => setSort(k) })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
+  const openIssues = server.reduce((n, p) => n + (p.openIssueCount ?? 0), 0);
   const waiting = all.filter((i) => i.state === "waiting" || i.state === "uploading").length;
   const attention = all.filter((i) => i.state === "needs_attention").length;
 
@@ -131,6 +151,19 @@ export default function JobGallery() {
     }
   };
 
+  const [importing, setImporting] = useState(false);
+  const addFromLibrary = () =>
+    Alert.alert("Add photos from your library", "Which stage are these photos?", [
+      ...(["before", "during", "after"] as const).map((st) => ({
+        text: st.charAt(0).toUpperCase() + st.slice(1),
+        onPress: () => {
+          setImporting(true);
+          void importFromLibrary(app, { jobId, jobNumber: job?.jobNumber ?? jobNumber ?? "" }, st).finally(() => setImporting(false));
+        },
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
+
   const open = (i: GalleryItem) =>
     router.push({ pathname: "/photo/[key]", params: { key: i.key, jobId, ids: items.map((x) => x.key).join(",") } });
 
@@ -167,12 +200,25 @@ export default function JobGallery() {
             <StatusPill status={job.status} onPress={app.can("jobs.manage") ? changeStatus : undefined} />
           </View>
         ) : null}
-        <Text style={[s.muted, { marginTop: 2 }]}>
-          {all.length} photo{all.length === 1 ? "" : "s"}
-          {waiting ? ` · ${waiting} waiting to upload` : ""}
-          {attention ? ` · ${attention} need attention` : ""}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
+          <Text style={[s.muted, { flexShrink: 1 }]}>
+            {all.length} photo{all.length === 1 ? "" : "s"}
+            {waiting ? ` · ${waiting} waiting to upload` : ""}
+            {attention ? ` · ${attention} need attention` : ""}
+          </Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Sort: ${SORT_LABELS[sort]}`} hitSlop={10} onPress={chooseSort}>
+            <Text style={{ color: C.link, fontWeight: "600" }}>{SORT_LABELS[sort]} ▾</Text>
+          </Pressable>
+        </View>
         {note ? <Text style={[s.muted, { marginTop: 6 }]}>{note}</Text> : null}
+        <Pressable
+          accessibilityRole="button"
+          hitSlop={8}
+          style={{ marginTop: 6, alignSelf: "flex-start" }}
+          onPress={() => router.push({ pathname: "/issues", params: { jobId, jobNumber: job?.jobNumber ?? jobNumber ?? "" } })}
+        >
+          <Text style={{ color: C.link, fontWeight: "600" }}>🔧  Issues{openIssues ? ` (${openIssues} to fix)` : ""} ›</Text>
+        </Pressable>
         {deletedCount ? (
           <Pressable
             accessibilityRole="button"
@@ -190,6 +236,20 @@ export default function JobGallery() {
           <Chip key={f.value} label={f.label} active={filter === f.value} tone={f.value === "flagged" ? "flag" : undefined} onPress={() => setFilter(f.value)} />
         ))}
       </ScrollView>
+      {/* Who took it. Only shown when more than one person (or an unknown photographer) is in this job. */}
+      {peopleList.length > 1 || (peopleList.length === 1 && peopleList[0]!.key !== "me") ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+          <Chip label="Everyone" active={people.size === 0} onPress={() => setPeople(new Set())} />
+          {peopleList.map((p) => (
+            <Chip
+              key={p.key}
+              label={`${p.key === "me" ? "Photos I took" : p.name ?? "Unknown"} (${p.count})`}
+              active={people.has(p.key)}
+              onPress={() => togglePerson(p.key)}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
       <FlatList
         style={{ flex: 1 }}
         key={cols}
@@ -198,18 +258,18 @@ export default function JobGallery() {
         keyExtractor={(i) => i.key}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}
         contentContainerStyle={{ padding: 4, paddingBottom: 120 }}
-        ListEmptyComponent={loading ? undefined : <Empty title={filter === "all" ? "No photos yet" : "No photos match this filter"} body={filter === "all" ? "Tap “Take Photos” to start." : undefined} />}
+        ListEmptyComponent={loading ? undefined : <Empty title={filter === "all" && people.size === 0 ? "No photos yet" : "No photos match this filter"} body={filter === "all" && people.size === 0 ? "Tap “Take Photos” to start." : undefined} />}
         renderItem={({ item }) => (
           <Pressable
             onPress={() => (selecting ? toggle(item.key) : open(item))}
             onLongPress={() => (selecting ? toggle(item.key) : startSelecting(item))}
             style={{ margin: 2, width: size, height: size }}
-            accessibilityLabel={`${item.stage} photo${item.flagged ? ", flagged" : ""}${selecting ? (selected.has(item.key) ? ", selected" : ", not selected") : ""}`}
+            accessibilityLabel={`${item.stage} photo, taken by ${item.personKey === "me" ? "you" : item.personName ?? "unknown"}${item.flagged ? ", flagged" : ""}${item.server?.commentCount ? `, ${item.server.commentCount} comments` : ""}${item.server?.openIssueCount ? `, ${item.server.openIssueCount} to fix` : ""}${selecting ? (selected.has(item.key) ? ", selected" : ", not selected") : ""}`}
           >
             {item.local && !item.local.remoteOnly ? (
               <LocalImage localId={item.local.localId} which="thumbnail" style={{ width: size, height: size, borderRadius: 6 }} />
             ) : item.server?.hasPreview ? (
-              <ServerImage photoId={item.server.id} style={{ width: size, height: size, borderRadius: 6 }} />
+              <ServerImage photoId={item.server.id} style={{ width: size, height: size, borderRadius: 6 }} thumb />
             ) : (
               <View style={{ width: size, height: size, borderRadius: 6, backgroundColor: C.line, alignItems: "center", justifyContent: "center" }}>
                 <Text style={s.muted}>{item.state === "server_missing_file" ? "File not\nuploaded yet" : "No preview"}</Text>
@@ -220,9 +280,28 @@ export default function JobGallery() {
                 <FlagBadge />
               </View>
             ) : null}
+            {((item.server?.commentCount ?? 0) > 0 || (item.server?.openIssueCount ?? 0) > 0) && !selecting ? (
+              <View pointerEvents="none" style={{ position: "absolute", top: 4, left: 4, flexDirection: "row", gap: 3 }}>
+                {(item.server?.openIssueCount ?? 0) > 0 ? (
+                  <View style={{ backgroundColor: "#b45309", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
+                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>🔧 {item.server?.openIssueCount}</Text>
+                  </View>
+                ) : null}
+                {(item.server?.commentCount ?? 0) > 0 ? (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
+                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>💬 {item.server?.commentCount}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
             <View style={{ position: "absolute", bottom: 4, left: 4 }}>
               {item.state !== "server" && item.state !== "server_missing_file" ? <SyncPill state={item.state} compact /> : null}
             </View>
+            {!selecting ? (
+              <View pointerEvents="none" style={{ position: "absolute", bottom: 5, right: 5 }}>
+                <PersonBadge personKey={item.personKey} name={item.personName} personId={item.personId} avatarAt={item.personAvatarAt} />
+              </View>
+            ) : null}
             {item.flagged ? <View pointerEvents="none" style={{ position: "absolute", inset: 0, borderWidth: 3, borderColor: C.flag, borderRadius: 6 }} /> : null}
             {selecting ? (
               <View pointerEvents="none" style={{ position: "absolute", inset: 0, borderRadius: 6, backgroundColor: selected.has(item.key) ? "rgba(255,255,255,0.35)" : "transparent" }}>
@@ -277,13 +356,26 @@ export default function JobGallery() {
           </Pressable>
         </View>
       ) : (
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push({ pathname: "/jobs/[jobId]/camera", params: { jobId, jobNumber: jobNumber ?? "" } })}
-          style={({ pressed }) => ({ position: "absolute", left: 16, right: 16, bottom: 32, backgroundColor: C.brand, borderRadius: 14, paddingVertical: 18, alignItems: "center", opacity: pressed ? 0.8 : 1 })}
-        >
-          <Text style={{ color: "#fff", fontWeight: "800", fontSize: 18 }}>📷  Take Photos</Text>
-        </Pressable>
+        <View style={{ position: "absolute", left: 16, right: 16, bottom: 32, flexDirection: "row", gap: 10 }}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push({ pathname: "/jobs/[jobId]/camera", params: { jobId, jobNumber: jobNumber ?? "" } })}
+            style={({ pressed }) => ({ flex: 1, backgroundColor: C.brand, borderRadius: 14, paddingVertical: 18, alignItems: "center", opacity: pressed ? 0.8 : 1 })}
+          >
+            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 18 }}>📷  Take Photos</Text>
+          </Pressable>
+          {app.can("photos.import") ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add photos from your photo library"
+              disabled={importing}
+              onPress={addFromLibrary}
+              style={({ pressed }) => ({ backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 14, paddingVertical: 18, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", opacity: pressed || importing ? 0.6 : 1 })}
+            >
+              <Text style={{ color: C.text, fontWeight: "700", fontSize: 15 }}>{importing ? "Adding…" : "🖼  Library"}</Text>
+            </Pressable>
+          ) : null}
+        </View>
       )}
     </View>
   );

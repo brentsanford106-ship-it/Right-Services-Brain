@@ -43,7 +43,7 @@ afterAll(async () => {
   await t.as("dev-avery-owner").patch(`${A}/team/members/${M.morgan}`, { roleIds: [roles.manager] });
   const admin = await adminClient();
   try {
-    await admin.query("UPDATE member_invites SET revoked_at = now() WHERE accepted_at IS NULL AND revoked_at IS NULL");
+    await admin.query("UPDATE member_invites SET revoked_at = now() WHERE accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL");
     await admin.query("UPDATE organization_memberships m SET status = 'removed' FROM users u WHERE u.id = m.user_id AND u.idp_issuer = $1", [ISSUER]);
   } finally {
     await admin.end();
@@ -165,7 +165,7 @@ describe("3. photo files are write-once", () => {
 });
 
 describe("4. first sign-in with several requests at once", () => {
-  it("every request succeeds and the person joins the company exactly once", async () => {
+  it("every request succeeds, one account is made, and the person joins once, on Accept", async () => {
     const inv = await t.as("dev-avery-owner").post(`${A}/team/invites`, { email: "fast.clicker@example.com", displayName: "Fast Clicker", roleIds: [roles.employee] });
     expect(inv.status).toBe(201);
     const token = "fake.fastclicker.sig";
@@ -174,8 +174,14 @@ describe("4. first sign-in with several requests at once", () => {
       const res = await t.app.inject({ method: "GET", url, headers: { authorization: `Bearer ${token}` } });
       return { status: res.statusCode, body: res.body ? JSON.parse(res.body) : null, headers: res.headers };
     };
-    const results = await Promise.all([call("/v1/me"), call(A), call(`${A}/jobs`), call("/v1/me"), call(`${A}/dashboard`)]);
-    expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+    const results = await Promise.all([call("/v1/me"), call("/v1/me"), call("/v1/me"), call("/v1/me")]);
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    expect(new Set(results.map((r) => r.body.user.id)).size).toBe(1);
+    // Not a member until they accept (the company answers "not found"), then a member exactly once.
+    expect((await call(A)).status).toBe(404);
+    const accepts = await Promise.all([0, 1].map(() => t.app.inject({ method: "POST", url: `/v1/invites/${inv.body.id}/accept`, headers: { authorization: `Bearer ${token}` } })));
+    expect(accepts.map((r) => r.statusCode).sort()).toEqual([200, 404]);
+    expect((await call(A)).status).toBe(200);
     const admin = await adminClient();
     try {
       const { rows } = await admin.query(
@@ -197,10 +203,10 @@ describe("4b. first sign-in race, step by step in the database", () => {
     const second = await appRoleClient();
     try {
       await first.query("BEGIN");
-      const a = await first.query("SELECT app.claim_invites($1, $2, $3, $4) AS id", [ISSUER, "sub-race-two", "race.two@example.com", "Race Two"]);
+      const a = await first.query("SELECT app.register_invited_user($1, $2, $3, $4) AS id", [ISSUER, "sub-race-two", "race.two@example.com", "Race Two"]);
       expect(a.rows[0].id).toEqual(expect.any(String));
       // The second sign-in starts while the first hasn't finished; it waits on the invite.
-      const pending = second.query("SELECT app.claim_invites($1, $2, $3, $4) AS id", [ISSUER, "sub-race-two", "race.two@example.com", "Race Two"]);
+      const pending = second.query("SELECT app.register_invited_user($1, $2, $3, $4) AS id", [ISSUER, "sub-race-two", "race.two@example.com", "Race Two"]);
       await new Promise((r) => setTimeout(r, 300));
       await first.query("COMMIT");
       const b = await pending;

@@ -15,7 +15,9 @@ export async function purgeDeletedPhoto(tx: Tx, photoId: string): Promise<{ jobI
   );
   const r = rows[0];
   if (!r) return null;
-  return { jobId: r.job_id, keys: [r.storage_key, r.preview_storage_key].filter((k): k is string => !!k) };
+  // The gallery thumbnail sits next to the preview (see thumbKeyFor in routes/photos.ts).
+  const thumb = r.preview_storage_key ? r.preview_storage_key.replace(/\/preview$/, "/thumb") : null;
+  return { jobId: r.job_id, keys: [r.storage_key, r.preview_storage_key, thumb].filter((k): k is string => !!k) };
 }
 
 /** Deletes stored files; failures are logged (without the key's contents) and never thrown. */

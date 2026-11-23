@@ -59,7 +59,7 @@ export default function AddPerson() {
       <DevBanner />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 10 }} keyboardShouldPersistTaps="handled">
         {note ? <Text style={s.error}>{note}</Text> : null}
-        <Text style={s.muted}>They'll sign in with this email address. Microsoft sends them a code to prove it's theirs. No password is needed.</Text>
+        <Text style={s.muted}>They'll sign in with this email address (Microsoft sends them a code; no password is needed), then press Accept to join. They have 14 days to accept.</Text>
         <Text style={[s.label, { marginTop: 8 }]}>Name</Text>
         <TextInput style={s.input} value={name} onChangeText={setName} placeholder="Full name" placeholderTextColor={C.muted} />
         <Text style={s.label}>Email</Text>

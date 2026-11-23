@@ -11,6 +11,7 @@ import { JobDetailPage } from "./pages/JobDetailPage";
 import { PhotoSearchPage } from "./pages/PhotoSearchPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TeamPage } from "./pages/TeamPage";
+import { forgetAvatars } from "./components/photos";
 
 function useSignedIn() {
   return useSyncExternalStore(session.subscribe, () => session.token !== null);
@@ -23,7 +24,10 @@ export function App() {
   // so the next person to sign in on this browser can never be shown it from memory (for example with Back).
   const wasSignedIn = useRef(signedIn);
   useEffect(() => {
-    if (wasSignedIn.current && !signedIn) queryClient.clear();
+    if (wasSignedIn.current && !signedIn) {
+      queryClient.clear();
+      forgetAvatars();
+    }
     wasSignedIn.current = signedIn;
   }, [signedIn, queryClient]);
   if (!signedIn) return <DevLoginPage />;

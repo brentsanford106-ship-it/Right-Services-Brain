@@ -37,12 +37,19 @@ export interface CreatePhotoBody {
   latitude?: number;
   longitude?: number;
   locationAccuracyM?: number;
+  /** Left out for photos from the app's camera. */
+  captureSource?: "imported";
+  capturedAtKnown?: boolean;
 }
 
 export interface PhotoApi {
   createPhoto(orgId: string, jobId: string, body: CreatePhotoBody): Promise<ServerPhoto>;
   uploadContent(orgId: string, photoId: string, bytes: Uint8Array, contentType: string): Promise<{ uploadStatus: string; duplicate: boolean }>;
   updatePhoto(orgId: string, photoId: string, body: { flagged?: boolean; note?: string | null; stage?: Stage }): Promise<ServerPhoto>;
+  /** Sends one waiting comment (see CommentOutbox). Optional so older test doubles keep working. */
+  createComment?(orgId: string, photoId: string, body: { clientRef: string; body: string; parentId?: string | null; mentionIds: string[]; markupId?: string | null }): Promise<{ id: string }>;
+  /** Sends one waiting drawing or issue change (see ActionOutbox). Optional so older test doubles keep working. */
+  post?<T>(path: string, body: unknown): Promise<T>;
 }
 
 export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string | Uint8Array; signal?: AbortSignal }) => Promise<{
@@ -154,8 +161,17 @@ export class HttpClient implements PhotoApi {
     return this.patch(`/v1/orgs/${orgId}/photos/${photoId}`, body);
   }
 
+  createComment(orgId: string, photoId: string, body: { clientRef: string; body: string; parentId?: string | null; mentionIds: string[]; markupId?: string | null }): Promise<{ id: string }> {
+    return this.post(`/v1/orgs/${orgId}/photos/${photoId}/comments`, body);
+  }
+
   async uploadContent(orgId: string, photoId: string, bytes: Uint8Array, contentType: string) {
-    const url = `${this.o.baseUrl}/v1/orgs/${orgId}/photos/${photoId}/content`;
+    return this.putRaw<{ uploadStatus: string; duplicate: boolean }>(`/v1/orgs/${orgId}/photos/${photoId}/content`, bytes, contentType);
+  }
+
+  /** Sends a file as the raw request body (photo files, profile pictures). */
+  async putRaw<T>(path: string, bytes: Uint8Array, contentType: string): Promise<T> {
+    const url = `${this.o.baseUrl}${path}`;
     const headers = { authorization: `Bearer ${await this.token()}`, "content-type": contentType };
     let res;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -176,6 +192,6 @@ export class HttpClient implements PhotoApi {
     } finally {
       clearTimeout(timer);
     }
-    return this.handle<{ uploadStatus: string; duplicate: boolean }>(res);
+    return this.handle<T>(res);
   }
 }

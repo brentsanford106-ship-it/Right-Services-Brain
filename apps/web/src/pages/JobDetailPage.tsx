@@ -1,12 +1,13 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { DeletedPhoto, Job, Photo } from "@rsb/contracts";
+import type { DeletedPhoto, Job, Photo, PhotoIssue } from "@rsb/contracts";
 import { api, ApiRequestError } from "../lib/api";
 import { useCan, useOrgId, useOrgQuery } from "../lib/hooks";
 import { pretty, Status } from "../components/ui";
 import { JobForm, type JobFormValues } from "../components/JobForm";
-import { applyFilter, downloadPhotos, FilterBar, Lightbox, PhotoGrid, type Filter } from "../components/photos";
+import { IssueList } from "../components/issues";
+import { applyFilter, applyPeople, downloadPhotos, FilterBar, Lightbox, PeopleAndSort, PhotoGrid, sortPhotos, SORTS, type Filter, type PeopleFilter, type Sort } from "../components/photos";
 
 export function JobDetailPage() {
   const { jobId = "" } = useParams();
@@ -17,6 +18,8 @@ export function JobDetailPage() {
   const canManage = useCan("jobs.manage");
   const [editing, setEditing] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
+  const [people, setPeople] = useState<PeopleFilter>(new Set());
+  const [sort, setSort] = useState<Sort>("oldest");
   const [open, setOpen] = useState<number | null>(null);
   // Select mode, like the iPhone Photos app.
   const [selected, setSelected] = useState<Set<string> | null>(null);
@@ -26,7 +29,25 @@ export function JobDetailPage() {
   const canDeleteAny = useCan("photos.delete_any");
   const canPurge = useCan("photos.purge");
   const deleted = useOrgQuery<{ items: DeletedPhoto[] }>("jobPhotosDeleted", `/jobs/${jobId}/photos/deleted`, canDeleteAny);
+  const issues = useOrgQuery<{ items: PhotoIssue[] }>("jobIssues", `/jobs/${jobId}/issues`);
   const refresh = () => qc.invalidateQueries({ queryKey: [orgId] });
+  // Open one photo (from an issue, or a link like ?photo=<id>), clearing filters so it is in the list.
+  const openPhoto = (photoId: string): boolean => {
+    const all = sortPhotos(photos.data?.items ?? [], sort);
+    const k = all.findIndex((p) => p.id === photoId);
+    if (k < 0) return false;
+    setFilter("all");
+    setPeople(new Set());
+    setSelected(null);
+    setOpen(k);
+    return true;
+  };
+  const [search, setSearch] = useSearchParams();
+  const wanted = search.get("photo");
+  useEffect(() => {
+    if (wanted && photos.data && openPhoto(wanted)) setSearch({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, photos.data]);
   const toggle = (id: string) =>
     setSelected((prev) => {
       const next = new Set(prev ?? []);
@@ -74,19 +95,27 @@ export function JobDetailPage() {
               <dt>Address</dt><dd>{j.siteAddress ?? "—"}</dd>
             </dl>
           )}
+          {(issues.data?.items?.length ?? 0) > 0 && (
+            <section aria-label="Issues on this job">
+              <h2>Issues to fix ({issues.data!.items.filter((i) => i.status !== "resolved").length} active)</h2>
+              <IssueList items={issues.data!.items} empty="" onChanged={refresh} onOpenPhoto={(pid) => { if (!openPhoto(pid)) window.alert("That photo isn't in the gallery (it may have been deleted)."); }} />
+            </section>
+          )}
           <h2>Photos</h2>
           <Status query={photos}>
             {(d) => {
-              const shown = applyFilter(d.items, filter);
+              const byPeople = applyPeople(d.items, people);
+              const shown = sortPhotos(applyFilter(byPeople, filter), sort);
               const pending = d.items.filter((p) => p.uploadStatus === "pending").length;
               return (
                 <>
                   <p className="muted small">
-                    {d.items.length} photo{d.items.length === 1 ? "" : "s"}, oldest first
+                    {d.items.length} photo{d.items.length === 1 ? "" : "s"}, {SORTS.find((o) => o.value === sort)!.label.toLowerCase()}
                     {pending ? ` · ${pending} still uploading from a phone` : ""}
                   </p>
+                  <PeopleAndSort items={d.items} people={people} onPeople={(x) => { setPeople(x); setOpen(null); }} sort={sort} onSort={(x) => { setSort(x); setOpen(null); }} />
                   <div className="headrow">
-                    <FilterBar value={filter} onChange={(f) => { setFilter(f); setOpen(null); }} items={d.items} />
+                    <FilterBar value={filter} onChange={(f) => { setFilter(f); setOpen(null); }} items={byPeople} />
                     {d.items.length > 0 && (
                       <button onClick={() => { setSelected(selected ? null : new Set()); setActionError(null); }}>{selected ? "Cancel" : "Select"}</button>
                     )}

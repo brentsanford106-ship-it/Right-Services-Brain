@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { DEV_AUTH_ISSUER, DevLoginRequest } from "@rsb/contracts";
-import type { DevAuth } from "../auth/dev.js";
+import { DevAuth } from "../auth/dev.js";
 import { DEV_LOGIN_USERS } from "../auth/devUsers.js";
 import type { Database } from "../lib/db.js";
 import { HttpError } from "../lib/errors.js";
@@ -25,7 +25,8 @@ export async function devAuthRoutes(app: FastifyInstance, devAuth: DevAuth, db: 
       return rows[0]?.id ?? null;
     });
     if (!userId) throw new HttpError("unauthenticated", "That account is not active.");
+    const email = await db.asUser(userId, async (tx) => (await tx.query<{ email: string }>("SELECT email FROM users WHERE id = $1", [userId])).rows[0]?.email);
     req.log.warn({ devAuth: true }, "development token issued");
-    return { accessToken: await devAuth.issue(subject), expiresIn: 900, tokenType: "Bearer" as const };
+    return { accessToken: await devAuth.issue(subject, DevAuth.TTL_SECONDS, email), expiresIn: 900, tokenType: "Bearer" as const };
   });
 }

@@ -101,3 +101,24 @@ Result: no gaps found. This runs on every change (GitHub "Checks").
 Also checked by tests in this pass: every policy belongs to the app role (or the admin tools) and every write policy is tied to the current company; the app login's rights match a reviewed list; only five reviewed "runs as admin" functions exist, each closed to the public with a fixed search path; people and audit events of company A are invisible to company B; an invite never gives another company's roles even if one is slipped into it in the database; pooled connections never keep a company or person, even after a failed request; 60 requests from both companies at once each get only their own company's data; photo files are filed under the right company; nothing company B can read contains company A's people, emails, customers or job titles. The whole server suite (258 tests) passes both with a superuser admin and with a non-superuser admin.
 
 Still assumed, not verified: that the real Entra tenant only issues verified emails (no tenant yet); that Azure's admin login behaves like the non-superuser stand-in used here; that no one grants `rsb_admin_tools` to another login by hand. Known design choice to review before selling to other companies: an owner of any company can add any email address, and that person joins at their next sign-in without being asked (they see the extra company in their list). No independent security review has been done.
+
+## Photo collaboration: comments, drawings, issues, alerts (added 2026-11-23)
+
+Every new table has forced row-level security with the company wall, an admin-tools policy, a trigger that refuses to move a row to another company, and only the column-level write rights it needs. The deep wall test (`company-walls-deep.test.ts`) lists every grant exactly, so a new or wider grant fails the tests.
+
+| Table | The app may | Can never change |
+| --- | --- | --- |
+| `photo_comments`, `photo_comment_revisions`, `photo_comment_mentions` | add; change a comment's wording and deleted markers | who wrote it, which photo, what it replies to; earlier wordings |
+| `photo_markups` | add; mark removed | the shape, who drew it, which photo |
+| `photo_issues`, `photo_issue_events` | add; change the working fields, only through the allowed status moves (database trigger) | which photo/job, who reported it, the history |
+| `notifications`, `notification_preferences` | add; mark read; change your own muted list | who it's for, who did it, what it's about |
+
+- **Record-level access:** everything goes through the photo's job. People who can't see the job get "not found" for its comments, drawings, issues, alerts and marked-up copies, the same as for the photo.
+- **Alerts** are re-checked against job access every time they're read, and only ever your own.
+- **Nobody approves their own fix** (server rule, tested). Issue changes made offline carry the status the person saw, so a stale change does nothing.
+- **Photos with issue history** are never deleted forever (manual or automatic), so the record of what was fixed stays.
+- **The stored photo never changes.** Drawings are kept separately. A copy with drawings is made on request, never stored, carries no location, needs "Share or download photos", and is audited.
+- **On the phone:** waiting comments (`pc-…`), drawings and issue changes (`pa-…`) and saved lists are encrypted in the same store as photos. Unsent ones block another person signing in, and are kept (locked) if access is turned off.
+- **Audit log:** comments, drawings and issue steps are recorded by action (`photo_comment.*`, `photo_markup.changed`, `photo_issue.*`, `photo.exported`) without copying the wording into the log.
+- As before, none of this is secure or production-ready until real sign-in and hosting are finished and checked (see "Must be done before real data").
+

@@ -52,8 +52,8 @@ export default function MemberRoles() {
     Alert.alert(
       status === "removed" ? `Remove ${member?.displayName}?` : `Suspend ${member?.displayName}?`,
       status === "removed"
-        ? "They lose access straight away. The next time their phone connects, it deletes this company's photos and lists from it, including any photos it hasn't uploaded yet. Photos already uploaded stay. To bring them back, add them again."
-        : "They lose access until you restore them. The next time their phone connects, it deletes this company's data from it, including any photos it hasn't uploaded yet.",
+        ? "They lose access straight away. The next time their phone connects, it removes this company's photos and lists from it, but keeps photos it hasn't uploaded yet (locked). Photos already uploaded stay. To bring them back, add them again; they press Accept, then those photos upload."
+        : "They lose access until you restore them. The next time their phone connects, it removes this company's data from it, but keeps photos it hasn't uploaded yet (locked) so they can upload once you restore access.",
       [
         { text: "Cancel", style: "cancel" },
         { text: status === "removed" ? "Remove" : "Suspend", style: "destructive", onPress: () => void setStatus(status) },

@@ -13,6 +13,8 @@ import {
   NetworkError,
   OwnerMismatchError,
   PhotoQueue,
+  CommentOutbox,
+  ActionOutbox,
   SyncEngine,
   Vault,
   type FetchLike,
@@ -34,7 +36,12 @@ export interface Session {
   signedInAt?: number;
   /** The company's rule: sign in again after this many days. */
   signInEveryDays?: number;
+  /** This person's id in the company, and when their profile picture last changed (null = none). */
+  membershipId?: string;
+  avatarAt?: string | null;
 }
+
+type OrgCtx = { permissions: string[]; signInEveryDays?: number; membershipId?: string; avatarAt?: string | null };
 
 type Who = { subject: string; displayName: string; mode: "dev" | "entra"; signedInAt?: number };
 const DAY_MS = 24 * 3600_000;
@@ -87,6 +94,21 @@ async function putBytes(url: string, headers: Record<string, string>, bytes: Uin
   }
 }
 
+export interface PendingInvite {
+  inviteId: string;
+  organizationId: string;
+  organizationName: string;
+  roles: string[];
+  invitedBy: string;
+  expiresAt: string;
+}
+export interface SignInResult {
+  orgs: { organizationId: string; organizationName: string }[];
+  /** Companies that added this person; they join only by pressing Accept. */
+  invites: PendingInvite[];
+}
+type MeBody = { user?: { displayName?: string }; memberships: { organizationId: string; organizationName: string }[]; invites?: PendingInvite[] };
+
 interface Ctx {
   ready: boolean;
   /** The vault key or files could not be read. Shown as a blocking error; nothing is deleted automatically. */
@@ -96,11 +118,17 @@ interface Ctx {
   session: Session | null;
   api: HttpClient;
   queue: PhotoQueue;
+  /** Comments written on this phone, waiting to be sent (encrypted, like photos). */
+  comments: CommentOutbox;
+  /** Drawings and issue changes made with no signal. */
+  actions: ActionOutbox;
   engine: SyncEngine;
   online: boolean;
-  signIn(subject: string, displayName: string): Promise<{ orgs: { organizationId: string; organizationName: string }[] }>;
+  signIn(subject: string, displayName: string): Promise<SignInResult>;
   /** Real sign-in with Microsoft. Returns null if the person closed the sign-in page. */
-  signInReal(): Promise<{ orgs: { organizationId: string; organizationName: string }[] } | null>;
+  signInReal(): Promise<SignInResult | null>;
+  /** Accept or decline a company's invite (after signing in, before choosing a company). Returns the updated lists. */
+  respondToInvite(inviteId: string, accept: boolean): Promise<SignInResult>;
   /** Set when real sign-in has expired; the person must sign in again. Unsent photos are kept. */
   notice: string | null;
   chooseOrg(orgId: string, orgName: string): Promise<void>;
@@ -133,6 +161,26 @@ export function useQueueVersion(): number {
   );
 }
 
+/** Re-renders when the waiting-comments list changes. */
+export function useCommentsVersion(): number {
+  const { comments } = useApp();
+  const ver = useRef(0);
+  return useSyncExternalStore(
+    (cb) => comments.subscribe(() => { ver.current++; cb(); }),
+    () => ver.current,
+  );
+}
+
+/** Re-renders when the waiting drawings / issue changes list changes. */
+export function useActionsVersion(): number {
+  const { actions } = useApp();
+  const ver = useRef(0);
+  return useSyncExternalStore(
+    (cb) => actions.subscribe(() => { ver.current++; cb(); }),
+    () => ver.current,
+  );
+}
+
 export function useSyncStatus(): SyncStatus {
   const { engine } = useApp();
   return useSyncExternalStore((cb) => engine.subscribe(cb), () => engine.getStatus());
@@ -149,7 +197,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const pendingSubject = useRef<Who | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const token = useRef<{ value: string; expiresAt: number; subject: string } | null>(null);
-  const holder = useRef<{ queue: PhotoQueue; engine: SyncEngine; api: HttpClient; vault: Vault } | null>(null);
+  const holder = useRef<{ queue: PhotoQueue; comments: CommentOutbox; actions: ActionOutbox; engine: SyncEngine; api: HttpClient; vault: Vault } | null>(null);
 
   const issueDevToken = useCallback(async (subject: string): Promise<string> => {
     let res;
@@ -205,30 +253,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return await issueDevToken(subject);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        // The account was disabled or removed: treat as revoked.
-        await revokeRef.current?.();
+        // The account was disabled or removed: lock this phone out, keeping photos that haven't been sent.
+        await lockOutRef.current?.();
         return null;
       }
       throw e;
     }
   }, [issueDevToken]);
 
-  const revokeRef = useRef<(() => Promise<void>) | null>(null);
   const expireRef = useRef<((message?: string) => Promise<void>) | null>(null);
+  const lockOutRef = useRef<(() => Promise<void>) | null>(null);
 
   if (!holder.current) {
     // Created synchronously so screens always have objects to use; the vault is opened in the effect below.
     const api = new HttpClient({ baseUrl: serverRef.current, getToken, fetch: fetchLike, putBytes });
     const vault = new Vault(new ExpoBlobStore(), { seal: async () => { throw new Error("not ready"); }, open: async () => { throw new Error("not ready"); } });
     const queue = new PhotoQueue(vault, { uuid: Crypto.randomUUID });
-    holder.current = { api, vault, queue, engine: new SyncEngine(queue, api) };
+    const comments = new CommentOutbox(vault, queue, { uuid: Crypto.randomUUID });
+    const actions = new ActionOutbox(vault, queue, { uuid: Crypto.randomUUID });
+    holder.current = { api, vault, queue, comments, actions, engine: new SyncEngine(queue, api, { comments, actions }) };
   }
 
   const rebuild = useCallback((cipher: ExpoCipher, base: string) => {
     const api = new HttpClient({ baseUrl: base, getToken, fetch: fetchLike, putBytes });
     const vault = new Vault(new ExpoBlobStore(), cipher);
     const queue = new PhotoQueue(vault, { uuid: Crypto.randomUUID });
-    holder.current = { api, vault, queue, engine: new SyncEngine(queue, api) };
+    const comments = new CommentOutbox(vault, queue, { uuid: Crypto.randomUUID });
+    const actions = new ActionOutbox(vault, queue, { uuid: Crypto.randomUUID });
+    holder.current = { api, vault, queue, comments, actions, engine: new SyncEngine(queue, api, { comments, actions }) };
     return holder.current;
   }, [getToken]);
 
@@ -246,6 +298,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const cipher = await ExpoCipher.load();
         const h = rebuild(cipher, serverRef.current);
         await h.queue.load();
+        await h.comments.load();
+        await h.actions.load();
         await h.queue.pruneSynced(KEEP_SYNCED_DETAILS_MS);
         const raw = await SecureStore.getItemAsync(SESSION_KEY, OPTS);
         if (raw) {
@@ -308,9 +362,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const cipher = await ExpoCipher.load(); // fresh key for the next person
     const h = rebuild(cipher, serverRef.current);
     await h.queue.load();
+    await h.comments.load();
+    await h.actions.load();
     force((n) => n + 1);
   }, [rebuild]);
-  revokeRef.current = wipeAll;
 
   // Real sign-in ran out (for example after a long time without opening the app). Unlike signing out or
   // being removed, the person's unsent photos stay encrypted on the phone and upload after they sign in again.
@@ -325,6 +380,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
   expireRef.current = expire;
 
+  // Suspended or removed from the company (JB's decision 2026-11-23: never delete photos that haven't been sent).
+  // Photos not yet sent stay on the phone, still encrypted, and upload if this person's access is turned back on and
+  // they sign in again. Everything else from the company (saved lists, photos shown from the server) is removed now.
+  // With nothing waiting to upload, it's a normal full sign-out.
+  const lockOut = useCallback(async () => {
+    const h = holder.current;
+    const unsent = h?.queue.pending().length ?? 0;
+    const unsentComments = h?.comments.all().length ?? 0;
+    const unsentChanges = h?.actions.all().length ?? 0;
+    if (!h || (unsent === 0 && unsentComments === 0 && unsentChanges === 0)) {
+      await wipeAll();
+      setNotice("Your access to this company was turned off. Ask an owner if this is a mistake.");
+      return;
+    }
+    await entra.forget().catch(() => undefined);
+    for (const name of await h.vault.list()) {
+      if (name.startsWith("c-")) await h.vault.remove(name).catch(() => undefined); // saved company lists
+    }
+    await Image.clearMemoryCache().catch(() => false);
+    await Image.clearDiskCache().catch(() => false);
+    clearScratch();
+    await SecureStore.deleteItemAsync(SESSION_KEY, OPTS);
+    token.current = null;
+    sessionRef.current = null;
+    pendingSubject.current = null;
+    setSession(null);
+    const what = [
+      unsent ? `${unsent} photo${unsent === 1 ? "" : "s"}` : null,
+      unsentComments ? `${unsentComments} comment${unsentComments === 1 ? "" : "s"}` : null,
+      unsentChanges ? `${unsentChanges} drawing or issue change${unsentChanges === 1 ? "" : "s"}` : null,
+    ].filter(Boolean).join(" and ");
+    const n = unsent + unsentComments + unsentChanges;
+    setNotice(
+      `Your access to this company was turned off. ${what} that ${n === 1 ? "hasn't" : "haven't"} been sent ${n === 1 ? "is" : "are"} kept locked on this phone. ` +
+        "If an owner turns your access back on, sign in again and they will upload.",
+    );
+  }, [wipeAll]);
+  lockOutRef.current = lockOut;
+
   const value = useMemo<Ctx>(() => {
     const h = holder.current!;
     return {
@@ -335,6 +429,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       online,
       api: h.api,
       queue: h.queue,
+      comments: h.comments,
+      actions: h.actions,
       engine: h.engine,
       async setServer(url: string) {
         const clean = url.trim().replace(/\/+$/, "");
@@ -345,17 +441,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const cipher = await ExpoCipher.load();
         const nh = rebuild(cipher, clean);
         await nh.queue.load();
+        await nh.comments.load();
+        await nh.actions.load();
         force((n) => n + 1);
       },
       async signIn(subject: string, displayName: string) {
         const q = holder.current!.queue;
         const owner = q.getOwner();
-        if (owner && owner.subject !== subject && q.pending().length > 0) throw new OwnerMismatchError(owner);
+        if (owner && owner.subject !== subject && q.hasUnsent()) throw new OwnerMismatchError(owner);
         pendingSubject.current = { subject, displayName, mode: "dev" };
         token.current = null;
         await issueDevToken(subject);
-        const me = await holder.current!.api.get<{ memberships: { organizationId: string; organizationName: string }[] }>("/v1/me");
-        return { orgs: me.memberships };
+        const me = await holder.current!.api.get<MeBody>("/v1/me");
+        return { orgs: me.memberships, invites: me.invites ?? [] };
       },
       notice,
       async signInReal() {
@@ -364,7 +462,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const subject = "entra:" + r.subject;
         const q = holder.current!.queue;
         const owner = q.getOwner();
-        if (owner && owner.subject !== subject && q.pending().length > 0) {
+        if (owner && owner.subject !== subject && q.hasUnsent()) {
           await entra.forget();
           throw new OwnerMismatchError(owner);
         }
@@ -372,9 +470,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         token.current = { value: r.accessToken, expiresAt: r.expiresAt, subject };
         setNotice(null);
         try {
-          const me = await holder.current!.api.get<{ user?: { displayName?: string }; memberships: { organizationId: string; organizationName: string }[] }>("/v1/me");
+          const me = await holder.current!.api.get<MeBody>("/v1/me");
           if (me.user?.displayName) pendingSubject.current.displayName = me.user.displayName;
-          return { orgs: me.memberships };
+          return { orgs: me.memberships, invites: me.invites ?? [] };
         } catch (e) {
           // Not added to a company (401): don't keep their Microsoft sign-in on this phone.
           if (e instanceof ApiError && e.status === 401) {
@@ -385,14 +483,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           throw e;
         }
       },
+      async respondToInvite(inviteId: string, accept: boolean) {
+        await holder.current!.api.post(`/v1/invites/${inviteId}/${accept ? "accept" : "decline"}`, {});
+        const me = await holder.current!.api.get<MeBody>("/v1/me");
+        return { orgs: me.memberships, invites: me.invites ?? [] };
+      },
       async chooseOrg(orgId: string, orgName: string) {
         const cur = sessionRef.current;
         const p: Who | null =
           pendingSubject.current ??
           (cur ? { subject: cur.subject, displayName: cur.displayName, mode: cur.mode ?? "dev", ...(cur.signedInAt ? { signedInAt: cur.signedInAt } : {}) } : null);
         if (!p) throw new Error("Sign in first.");
-        const ctx = await holder.current!.api.get<{ permissions: string[]; signInEveryDays?: number }>(`/v1/orgs/${orgId}`);
+        const ctx = await holder.current!.api.get<OrgCtx>(`/v1/orgs/${orgId}`);
         await holder.current!.queue.claim({ subject: p.subject, displayName: p.displayName });
+        // A fresh sign-in may come with access turned back on (for example after a suspension): try photos that were
+        // refused before once more. Anything still refused simply goes back to "needs attention".
+        for (const item of holder.current!.queue.all()) {
+          if (item.needsAttention) await holder.current!.queue.retry(item.localId);
+        }
         const s: Session = {
           subject: p.subject,
           displayName: p.displayName,
@@ -402,6 +510,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           mode: p.mode,
           ...(p.signedInAt ? { signedInAt: p.signedInAt } : {}),
           ...(ctx.signInEveryDays ? { signInEveryDays: ctx.signInEveryDays } : {}),
+          ...(ctx.membershipId ? { membershipId: ctx.membershipId } : {}),
+          avatarAt: ctx.avatarAt ?? null,
         };
         await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(s), OPTS);
         sessionRef.current = s;
@@ -415,11 +525,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const cur = sessionRef.current;
         if (!cur) return;
         try {
-          const ctx = await holder.current!.api.get<{ permissions: string[]; signInEveryDays?: number }>(`/v1/orgs/${cur.orgId}`);
+          const ctx = await holder.current!.api.get<OrgCtx>(`/v1/orgs/${cur.orgId}`);
           const next = [...ctx.permissions].sort();
           const every = ctx.signInEveryDays ?? cur.signInEveryDays;
-          if (JSON.stringify(next) === JSON.stringify([...cur.permissions].sort()) && every === cur.signInEveryDays) return;
-          const s: Session = { ...cur, permissions: next, ...(every ? { signInEveryDays: every } : {}) };
+          const avatarAt = ctx.avatarAt ?? null;
+          const membershipId = ctx.membershipId ?? cur.membershipId;
+          if (
+            JSON.stringify(next) === JSON.stringify([...cur.permissions].sort()) && every === cur.signInEveryDays &&
+            avatarAt === (cur.avatarAt ?? null) && membershipId === cur.membershipId
+          ) return;
+          const s: Session = { ...cur, permissions: next, ...(every ? { signInEveryDays: every } : {}), ...(membershipId ? { membershipId } : {}), avatarAt };
           await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(s), OPTS);
           sessionRef.current = s;
           setSession(s);
@@ -429,7 +544,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Only our own server's "not found" counts (it always carries a request id); a 404 page from Wi-Fi or Azure
           // in between must never wipe unsent photos.
           if (e instanceof ApiError && e.status === 404 && e.code === "not_found" && !!e.requestId && sessionRef.current) {
-            await revokeRef.current?.();
+            await lockOutRef.current?.();
             return;
           }
           // Offline: keep what we have. The server still checks every action.

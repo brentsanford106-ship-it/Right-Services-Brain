@@ -2,6 +2,8 @@
 
 Last updated: 2026-11-21. Phase 1 is **not complete**. The acceptance flow passes as an automated test, and most of it has now been done by hand on JB's real iPhone (iOS 26, through Expo Go) and Windows PC. Real sign-in is built and tested locally but not switched on (needs a free Microsoft Entra tenant). Cloud storage and backups are not built.
 
+Photo collaboration (who took it, comments, markup, issues) is tracked in [PHOTO_COLLABORATION.md](PHOTO_COLLABORATION.md).
+
 ## Acceptance flow
 
 | Step | Automated test (real server + database, over HTTP) | On a real iPhone |

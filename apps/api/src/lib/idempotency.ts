@@ -1,9 +1,12 @@
 import type { Tx } from "./db.js";
 import { HttpError } from "./errors.js";
 
-type IdempotentTable = "photos" | "receipts" | "mileage_records" | "maintenance_records";
+type IdempotentTable = "photos" | "photo_comments" | "photo_markups" | "photo_issues" | "receipts" | "mileage_records" | "maintenance_records";
 const OWNER_COLUMN: Record<IdempotentTable, string> = {
   photos: "uploaded_by_membership_id",
+  photo_comments: "author_membership_id",
+  photo_markups: "author_membership_id",
+  photo_issues: "created_by_membership_id",
   receipts: "submitted_by_membership_id",
   mileage_records: "membership_id",
   maintenance_records: "reported_by_membership_id",

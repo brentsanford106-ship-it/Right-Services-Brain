@@ -14,11 +14,18 @@ export interface ObjectStorage {
   delete(key: string): Promise<void>;
 }
 
-const KEY = /^org\/[0-9a-f-]{36}\/photos\/[0-9a-f-]{36}(\/(original|preview))?$/;
+const KEY = /^org\/[0-9a-f-]{36}\/(photos\/[0-9a-f-]{36}(\/(original|preview|thumb))?|avatars\/[0-9a-f-]{36})$/;
 
 export function photoKey(orgId: string, photoId: string): string {
   // UUIDs are compared case-insensitively by the database; file names always use the lowercase form.
   const key = `org/${orgId.toLowerCase()}/photos/${photoId.toLowerCase()}`;
+  if (!KEY.test(key)) throw new Error("invalid storage key");
+  return key;
+}
+
+/** A person's profile picture in one company: org/<company>/avatars/<membership>. */
+export function avatarKey(orgId: string, membershipId: string): string {
+  const key = `org/${orgId.toLowerCase()}/avatars/${membershipId.toLowerCase()}`;
   if (!KEY.test(key)) throw new Error("invalid storage key");
   return key;
 }

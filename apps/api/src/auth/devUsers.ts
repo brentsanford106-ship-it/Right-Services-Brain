@@ -14,5 +14,6 @@ export const DEV_LOGIN_USERS: DevUser[] = [
   { subject: "dev-blake-employee", displayName: "Blake Employee", description: "Employee, Redstone (DEMO)" },
   { subject: "dev-casey-both", displayName: "Casey Contractor", description: "Employee at Harbor Pine AND Manager at Redstone" },
   { subject: "dev-sam-suspended", displayName: "Sam Suspended", description: "Suspended membership: should see no company data" },
+  { subject: "dev-nia-newcomer", displayName: "Nia Newcomer", description: "Not in a company yet. Add nia.newcomer@example.com as an owner, then sign in as Nia and press Accept" },
   { subject: "dev-dana-disabled", displayName: "Dana Disabled", description: "Disabled account: sign-in should be refused" },
 ];

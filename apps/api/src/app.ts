@@ -144,9 +144,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
           identity.subject,
         ]);
         if (rows[0]?.id) return rows[0].id;
-        // First real sign-in: link the person to any open invite for their verified email.
+        // First real sign-in: an account is made only if their verified email has a live invite. They join a
+        // company only when they press Accept (POST /v1/invites/:id/accept).
         if (!identity.email) return null;
-        const { rows: claimed } = await tx.query<{ id: string | null }>("SELECT app.claim_invites($1, $2, $3, $4) AS id", [
+        const { rows: claimed } = await tx.query<{ id: string | null }>("SELECT app.register_invited_user($1, $2, $3, $4) AS id", [
           identity.issuer,
           identity.subject,
           identity.email,

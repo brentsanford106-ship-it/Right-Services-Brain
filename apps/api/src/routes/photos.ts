@@ -28,6 +28,8 @@ import { processUpload, sha256 } from "../lib/image.js";
 import { photoKey } from "../storage/types.js";
 import { purgeDeletedPhoto, removeFiles } from "../lib/purge.js";
 import type { RouteDeps } from "./index.js";
+import sharp from "sharp";
+import { marksToSvg, type MarkupShape } from "@rsb/photo-sync";
 
 interface PhotoRow {
   id: string;
@@ -43,7 +45,16 @@ interface PhotoRow {
   upload_status: Photo["uploadStatus"];
   uploaded_by: string;
   uploaded_by_membership_id: string;
+  photographer_membership_id: string | null;
+  photographer: string | null;
+  capture_source: Photo["captureSource"];
+  captured_at_known: boolean;
+  photographer_avatar_at: Date | null;
   open_flags: number;
+  comment_count: number;
+  last_comment_at: Date | null;
+  markup_count: number;
+  open_issue_count: number;
   latitude: number | null;
   longitude: number | null;
   width_px: number | null;
@@ -52,13 +63,21 @@ interface PhotoRow {
 }
 
 const PHOTO_SELECT = `SELECT p.id, p.job_id, j.job_number, j.site_name, p.stage, p.caption, p.is_flagged, p.flagged_at, p.captured_at, p.stored_at, p.upload_status,
-                             u.display_name AS uploaded_by, p.uploaded_by_membership_id, p.latitude, p.longitude, p.width_px, p.height_px,
+                             u.display_name AS uploaded_by, p.uploaded_by_membership_id,
+                             p.photographer_membership_id, pu.display_name AS photographer, p.capture_source, p.captured_at_known,
+                             pm.avatar_updated_at AS photographer_avatar_at, p.latitude, p.longitude, p.width_px, p.height_px,
                              (p.preview_storage_key IS NOT NULL) AS has_preview,
-                             (SELECT count(*)::int FROM photo_flags f WHERE f.organization_id = p.organization_id AND f.photo_id = p.id AND f.status = 'open') AS open_flags
+                             (SELECT count(*)::int FROM photo_flags f WHERE f.organization_id = p.organization_id AND f.photo_id = p.id AND f.status = 'open') AS open_flags,
+                             (SELECT count(*)::int FROM photo_comments c WHERE c.organization_id = p.organization_id AND c.photo_id = p.id AND c.deleted_at IS NULL) AS comment_count,
+                             (SELECT max(c.created_at) FROM photo_comments c WHERE c.organization_id = p.organization_id AND c.photo_id = p.id AND c.deleted_at IS NULL) AS last_comment_at,
+                             (SELECT count(*)::int FROM photo_markups k WHERE k.organization_id = p.organization_id AND k.photo_id = p.id AND k.removed_at IS NULL) AS markup_count,
+                             (SELECT count(*)::int FROM photo_issues pi WHERE pi.organization_id = p.organization_id AND pi.photo_id = p.id AND pi.status <> 'resolved') AS open_issue_count
                         FROM photos p
                         JOIN jobs j ON j.organization_id = p.organization_id AND j.id = p.job_id
                         JOIN organization_memberships m ON m.organization_id = p.organization_id AND m.id = p.uploaded_by_membership_id
-                        JOIN users u ON u.id = m.user_id`;
+                        JOIN users u ON u.id = m.user_id
+                        LEFT JOIN organization_memberships pm ON pm.organization_id = p.organization_id AND pm.id = p.photographer_membership_id
+                        LEFT JOIN users pu ON pu.id = pm.user_id`;
 
 /** Everyone may delete their own photos; photos.delete_any lets owners/managers delete any photo they can see. */
 const mayDelete = (ctx: OrgContext, uploadedBy: string) =>
@@ -77,7 +96,18 @@ const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
   storedAt: r.stored_at?.toISOString() ?? null,
   uploadStatus: r.upload_status,
   uploadedBy: r.uploaded_by,
+  photographerId: r.photographer_membership_id,
+  photographer: r.photographer,
+  takenByMe: r.photographer_membership_id !== null && r.photographer_membership_id === ctx.membershipId,
+  uploadedByMe: r.uploaded_by_membership_id === ctx.membershipId,
+  captureSource: r.capture_source,
+  capturedAtKnown: r.captured_at_known,
+  photographerAvatarAt: r.photographer_avatar_at?.toISOString() ?? null,
   openFlags: r.open_flags,
+  commentCount: r.comment_count,
+  lastCommentAt: r.last_comment_at?.toISOString() ?? null,
+  markupCount: r.markup_count,
+  openIssueCount: r.open_issue_count,
   latitude: r.latitude,
   longitude: r.longitude,
   widthPx: r.width_px,
@@ -86,13 +116,16 @@ const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
   canDelete: mayDelete(ctx, r.uploaded_by_membership_id),
 });
 
+/** The small gallery thumbnail sits next to the preview: org/<org>/photos/<photo>/thumb. */
+export const thumbKeyFor = (previewKey: string) => previewKey.replace(/\/preview$/, "/thumb");
+
 /** Loads a photo the caller is allowed to see (via its job), or throws 404. */
-async function loadVisiblePhoto(tx: Tx, ctx: OrgContext, photoId: string, includeDeleted = false) {
+export async function loadVisiblePhoto(tx: Tx, ctx: OrgContext, photoId: string, includeDeleted = false) {
   const { rows } = await tx.query<{
-    job_id: string; uploaded_by_membership_id: string; upload_status: string; content_type: string;
+    job_id: string; uploaded_by_membership_id: string; photographer_membership_id: string | null; upload_status: string; content_type: string;
     storage_key: string | null; preview_storage_key: string | null; original_sha256: string | null;
   }>(
-    `SELECT job_id, uploaded_by_membership_id, upload_status, content_type, storage_key, preview_storage_key, original_sha256
+    `SELECT job_id, uploaded_by_membership_id, photographer_membership_id, upload_status, content_type, storage_key, preview_storage_key, original_sha256
        FROM photos WHERE id = $1 AND ($2::boolean OR deleted_at IS NULL)`,
     [photoId, includeDeleted],
   );
@@ -166,21 +199,26 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
     const body = parse(CreatePhotoRequest, req.body);
     const result = await inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("photos.upload");
+      if (body.captureSource === "imported") ctx.require("photos.import");
       await assertJobAccess(tx, ctx, jobId);
       if (new Date(body.capturedAt).getTime() > Date.now() + 5 * 60_000) {
         throw new HttpError("validation_failed", undefined, [{ path: "capturedAt", issue: "cannot be in the future" }]);
       }
       const { id, created } = await insertIdempotent(
         tx, "photos", body.clientRef, ctx.membershipId,
+        // Who took it is never taken from the request: in-app photos are credited to the signed-in person by the
+        // database; imported photos stay "unknown".
         `INSERT INTO photos (organization_id, job_id, content_type, stage, caption, captured_at, uploaded_by_membership_id,
-                             client_ref, latitude, longitude, location_accuracy_m, is_flagged, flagged_at, flagged_by_membership_id)
+                             client_ref, latitude, longitude, location_accuracy_m, is_flagged, flagged_at, flagged_by_membership_id,
+                             capture_source, captured_at_known)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::boolean,
-                 CASE WHEN $12::boolean THEN now() END, CASE WHEN $12::boolean THEN $7::uuid END)
+                 CASE WHEN $12::boolean THEN now() END, CASE WHEN $12::boolean THEN $7::uuid END, $13, $14)
          ON CONFLICT (organization_id, client_ref) DO NOTHING RETURNING id`,
         [ctx.orgId, jobId, body.contentType, body.stage, body.note ?? null, body.capturedAt, ctx.membershipId,
-         body.clientRef, body.latitude ?? null, body.longitude ?? null, body.locationAccuracyM ?? null, body.flagged],
+         body.clientRef, body.latitude ?? null, body.longitude ?? null, body.locationAccuracyM ?? null, body.flagged,
+         body.captureSource, body.capturedAtKnown],
       );
-      if (created) await recordAudit(tx, ctx, "photo.recorded", "photo", id, { jobId, hasLocation: body.latitude !== undefined });
+      if (created) await recordAudit(tx, ctx, "photo.recorded", "photo", id, { jobId, hasLocation: body.latitude !== undefined, source: body.captureSource });
       const { rows } = await tx.query<PhotoRow>(`${PHOTO_SELECT} WHERE p.id = $1`, [id]);
       return { photo: toPhoto(rows[0]!, ctx), created };
     });
@@ -214,6 +252,7 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
     const processed = await processUpload(bytes, declared);
     const originalKey = photoKey(orgId, photoId) + "/original";
     const previewKey = processed.preview ? photoKey(orgId, photoId) + "/preview" : null;
+    const thumbKey = processed.thumb ? photoKey(orgId, photoId) + "/thumb" : null;
     // Files are written first, then the record is marked stored in one transaction.
     // If the process dies in between, the photo simply stays "pending" and the phone retries.
     // The original is write-once: if a file is already there (an earlier attempt that died before the record was
@@ -226,6 +265,7 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
       }
     }
     if (processed.preview && previewKey) await storage.put(previewKey, processed.preview.data, "image/jpeg");
+    if (processed.thumb && thumbKey) await storage.put(thumbKey, processed.thumb, "image/jpeg");
 
     return inOrg(db, req, orgId, async (tx, ctx) => {
       const { rowCount } = await tx.query(
@@ -263,11 +303,39 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
         ctx.require("photos.read_original");
         await recordAudit(tx, ctx, "photo.original_downloaded", "photo", photoId);
       }
+      // A copy with the drawings on it is a photo leaving the app: it needs "share/download" and is always audited.
+      let marks: MarkupShape[] = [];
+      if (variant === "annotated") {
+        ctx.require("photos.export");
+        const { rows } = await tx.query<MarkupShape>(
+          "SELECT kind, color, size, points, label FROM photo_markups WHERE photo_id = $1 AND removed_at IS NULL ORDER BY created_at, id",
+          [photoId],
+        );
+        marks = rows;
+        await recordAudit(tx, ctx, "photo.exported", "photo", photoId, { channel: "annotated_copy", marks: marks.length });
+      }
       const key = variant === "original" ? p.storage_key : p.preview_storage_key;
       if (!key) throw notFound();
-      return { key, contentType: variant === "original" ? p.content_type : "image/jpeg" };
+      return { key, marks, contentType: variant === "original" ? p.content_type : "image/jpeg" };
     });
-    const data = await storage.get(file.key);
+    if (variant === "annotated") {
+      const base = await storage.get(file.key);
+      if (!base) throw notFound();
+      // Drawn over the display copy, made fresh each time and never stored. Metadata (like location) is left out.
+      const img = sharp(base);
+      const { width = 0, height = 0 } = await img.metadata();
+      const out = file.marks.length && width && height
+        ? await img.composite([{ input: Buffer.from(marksToSvg(file.marks, width, height)), top: 0, left: 0 }]).jpeg({ quality: 88 }).toBuffer()
+        : await img.jpeg({ quality: 88 }).toBuffer();
+      return reply
+        .header("content-type", "image/jpeg")
+        .header("content-disposition", `inline; filename="${photoId}-marked-up.jpg"`)
+        .header("cache-control", "private, no-store")
+        .header("cross-origin-resource-policy", "same-site")
+        .send(out);
+    }
+    // Small gallery thumbnail. Photos uploaded before thumbnails existed fall back to the preview.
+    const data = (variant === "thumb" ? await storage.get(thumbKeyFor(file.key)) : null) ?? (await storage.get(file.key));
     if (!data) throw notFound();
     return reply
       .header("content-type", file.contentType)
@@ -369,6 +437,10 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
         const { rows } = await tx.query<{ job_id: string }>("SELECT job_id FROM photos WHERE id = $1 AND deleted_at IS NOT NULL", [id]);
         if (!rows[0]) throw notFound();
         await assertJobAccess(tx, ctx, rows[0].job_id);
+        const { rows: h } = await tx.query<{ kept: boolean }>("SELECT app.photo_has_issue_history($1, $2) AS kept", [ctx.orgId, id]);
+        if (h[0]?.kept) {
+          throw new HttpError("conflict", "One of these photos is part of an issue's history, so it is kept. It can stay in Recently Deleted or be restored, but not deleted forever.");
+        }
       }
       const all: string[] = [];
       for (const id of ids) {

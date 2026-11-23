@@ -4,6 +4,7 @@ import type { MeResponse } from "@rsb/contracts";
 import { useOrgContext, useOrgId } from "../lib/hooks";
 import { api, session } from "../lib/api";
 import { DevBanner, Status } from "./ui";
+import { AlertsBell } from "./alerts";
 
 export function Layout() {
   const orgId = useOrgId();
@@ -28,6 +29,8 @@ export function Layout() {
         <img src="/favicon.png" alt="Right Services" className="logo-mark" />
         <strong>{ctx.data?.organization.name ?? "…"}</strong>
         <span className="muted">{ctx.data?.roles.join(", ")}</span>
+        <span className="spacer" />
+        {ctx.data && <AlertsBell />}
         <button className="link" onClick={() => session.set(null)}>Sign out</button>
       </header>
       <nav className="sidenav" aria-label="Main">

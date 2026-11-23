@@ -39,7 +39,7 @@ afterAll(async () => {
   const admin = await adminClient();
   try {
     // Leave company A as the seed had it for later test files: new people removed, open invites revoked.
-    await admin.query("UPDATE member_invites SET revoked_at = now() WHERE accepted_at IS NULL AND revoked_at IS NULL");
+    await admin.query("UPDATE member_invites SET revoked_at = now() WHERE accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL");
     await admin.query(
       "UPDATE organization_memberships m SET status = 'removed' FROM users u WHERE u.id = m.user_id AND u.idp_issuer = $1",
       [ISSUER],
@@ -51,6 +51,14 @@ afterAll(async () => {
 });
 
 const invite = (subject: string, body: Record<string, unknown>, org = A) => t.as(subject).post(`${org}/team/invites`, body);
+/** The person presses Accept on every invite waiting for them. */
+async function acceptAll(token: string): Promise<void> {
+  const me = await call(token, "GET", "/v1/me");
+  expect(me.status).toBe(200);
+  for (const i of me.body.invites as { inviteId: string }[]) {
+    expect((await call(token, "POST", `/v1/invites/${i.inviteId}/accept`)).status).toBe(200);
+  }
+}
 
 describe("adding a person and their first sign-in", () => {
   it("owner adds someone by email; their first real sign-in links them to the company with that role", async () => {
@@ -61,9 +69,20 @@ describe("adding a person and their first sign-in", () => {
     expect(open).toMatchObject({ email: "new.tech@example.com", displayName: "Nia Newtech", roles: [{ name: "Employee" }] });
 
     const token = person("nia", "new.tech@example.com", "Nia N.");
+    // Signing in alone does NOT join: the company is shown as an invite, and nothing of it is reachable yet.
+    const before = await call(token, "GET", "/v1/me");
+    expect(before.status).toBe(200);
+    expect(before.body.memberships).toEqual([]);
+    expect(before.body.invites).toEqual([
+      expect.objectContaining({ inviteId: r.body.id, organizationId: ORG_A, organizationName: F.organizations[0]!.name, roles: ["Employee"], invitedBy: "Avery Owner" }),
+    ]);
+    expect((await call(token, "GET", A)).status).toBe(404);
+    expect((await call(token, "POST", `/v1/invites/${r.body.id}/accept`)).body).toEqual({ inviteId: r.body.id, outcome: "accepted" });
     const me = await call(token, "GET", "/v1/me");
-    expect(me.status).toBe(200);
     expect(me.body.memberships.map((m: { organizationId: string }) => m.organizationId)).toEqual([ORG_A]);
+    expect(me.body.invites).toEqual([]);
+    // Accepting twice does nothing more.
+    expect((await call(token, "POST", `/v1/invites/${r.body.id}/accept`)).status).toBe(404);
     const ctx = await call(token, "GET", A);
     expect(ctx.body.roles).toEqual(["employee"]);
     expect(ctx.body.permissions).not.toContain("roles.manage");
@@ -99,6 +118,7 @@ describe("adding a person and their first sign-in", () => {
 
   it("an existing person added to a second company gets it at their next sign-in", async () => {
     expect((await invite("dev-riley-owner", { email: "new.tech@example.com", displayName: "Nia at Redstone", roleIds: [roleB.employee] }, B)).status).toBe(201);
+    await acceptAll(person("nia", "new.tech@example.com", "Nia N."));
     const me = await call(person("nia", "new.tech@example.com", "Nia N."), "GET", "/v1/me");
     expect(me.body.memberships.map((m: { organizationId: string }) => m.organizationId).sort()).toEqual([ORG_A, ORG_B].sort());
   });
@@ -107,6 +127,105 @@ describe("adding a person and their first sign-in", () => {
     const r = await invite("dev-avery-owner", { email: "changed.mind@example.com", displayName: "Changed Mind", roleIds: [roleA.employee] });
     expect((await t.as("dev-avery-owner").del(`${A}/team/invites/${r.body.id}`)).status).toBe(204);
     expect((await call(person("changed", "changed.mind@example.com"), "GET", "/v1/me")).status).toBe(401);
+  });
+});
+
+describe("accepting, declining and expiry", () => {
+  async function age(inviteId: string, days: number) {
+    const admin = await adminClient();
+    try {
+      await admin.query("UPDATE member_invites SET expires_at = now() - make_interval(days => $2) WHERE id = $1", [inviteId, days]);
+    } finally {
+      await admin.end();
+    }
+  }
+
+  it("a new invite lasts 14 days", async () => {
+    const r = await invite("dev-avery-owner", { email: "fourteen@example.com", displayName: "Fourteen", roleIds: [roleA.employee] });
+    const days = (Date.parse(r.body.expiresAt) - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(13.9);
+    expect(days).toBeLessThan(14.1);
+    const listed = (await t.as("dev-avery-owner").get(`${A}/team/invites`)).body.items.find((i: { id: string }) => i.id === r.body.id);
+    expect(listed).toMatchObject({ expired: false, expiresAt: r.body.expiresAt });
+  });
+
+  it("an expired invite can't be accepted, gives a first-time person no account, and the owner sees it as expired", async () => {
+    const r = await invite("dev-avery-owner", { email: "too.late@example.com", displayName: "Too Late", roleIds: [roleA.employee] });
+    await age(r.body.id, 1);
+    const token = person("late", "too.late@example.com");
+    expect((await call(token, "GET", "/v1/me")).status).toBe(401);
+    expect((await call(token, "POST", `/v1/invites/${r.body.id}/accept`)).status).toBe(401);
+    const listed = (await t.as("dev-avery-owner").get(`${A}/team/invites`)).body.items.find((i: { id: string }) => i.id === r.body.id);
+    expect(listed.expired).toBe(true);
+
+    // Renew: it works again for 14 days from now.
+    const renewed = await t.as("dev-avery-owner").post(`${A}/team/invites/${r.body.id}/renew`);
+    expect(renewed.status).toBe(200);
+    expect(renewed.body.expired).toBe(false);
+    await acceptAll(token);
+    expect((await call(token, "GET", A)).status).toBe(200);
+  });
+
+  it("an existing person can't accept an invite after it expires", async () => {
+    const token = person("late", "too.late@example.com"); // has an account (joined company A in the test above)
+    const r = await invite("dev-riley-owner", { email: "too.late@example.com", displayName: "Too Late", roleIds: [roleB.employee] }, B);
+    expect(r.status).toBe(201);
+    expect((await call(token, "GET", "/v1/me")).body.invites).toHaveLength(1);
+    await age(r.body.id, 0);
+    expect((await call(token, "GET", "/v1/me")).body.invites).toEqual([]);
+    expect((await call(token, "POST", `/v1/invites/${r.body.id}/accept`)).status).toBe(404);
+  });
+
+  it("adding an email again after its invite expired replaces the old invite", async () => {
+    const first = await invite("dev-avery-owner", { email: "again@example.com", displayName: "Again", roleIds: [roleA.employee] });
+    expect((await invite("dev-avery-owner", { email: "again@example.com", displayName: "Again", roleIds: [roleA.employee] })).status).toBe(409);
+    await age(first.body.id, 1);
+    const second = await invite("dev-avery-owner", { email: "again@example.com", displayName: "Again", roleIds: [roleA.employee] });
+    expect(second.status).toBe(201);
+    const ids = (await t.as("dev-avery-owner").get(`${A}/team/invites`)).body.items.map((i: { id: string }) => i.id);
+    expect(ids).toContain(second.body.id);
+    expect(ids).not.toContain(first.body.id);
+  });
+
+  it("declining: the person doesn't join, the invite disappears, and it can't be accepted afterwards", async () => {
+    const r = await invite("dev-avery-owner", { email: "no.thanks@example.com", displayName: "No Thanks", roleIds: [roleA.employee] });
+    const token = person("nothanks", "no.thanks@example.com");
+    expect((await call(token, "GET", "/v1/me")).body.invites).toHaveLength(1);
+    expect((await call(token, "POST", `/v1/invites/${r.body.id}/decline`)).body.outcome).toBe("declined");
+    expect((await call(token, "POST", `/v1/invites/${r.body.id}/accept`)).status).toBe(404);
+    expect((await call(token, "GET", "/v1/me")).body).toMatchObject({ memberships: [], invites: [] });
+    expect((await t.as("dev-avery-owner").get(`${A}/team/invites`)).body.items.map((i: { id: string }) => i.id)).not.toContain(r.body.id);
+    // The owner can add them again later.
+    expect((await invite("dev-avery-owner", { email: "no.thanks@example.com", displayName: "No Thanks", roleIds: [roleA.employee] })).status).toBe(201);
+  });
+
+  it("only the person the invite was sent to can accept it", async () => {
+    const r = await invite("dev-avery-owner", { email: "the.right.one@example.com", displayName: "Right One", roleIds: [roleA.manager] });
+    // Someone else with an account (and their own email) tries the invite id.
+    const other = person("nia", "new.tech@example.com", "Nia N.");
+    expect((await call(other, "POST", `/v1/invites/${r.body.id}/accept`)).status).toBe(404);
+    expect((await t.as("dev-eli-employee").post(`/v1/invites/${r.body.id}/accept`)).status).toBe(404);
+    expect((await call(other, "POST", `/v1/invites/not-a-uuid/accept`)).status).toBe(400);
+    expect((await t.app.inject({ method: "POST", url: `/v1/invites/${r.body.id}/accept` })).statusCode).toBe(401);
+    // Still open for the right person.
+    expect((await t.as("dev-avery-owner").get(`${A}/team/invites`)).body.items.map((i: { id: string }) => i.id)).toContain(r.body.id);
+  });
+
+  it("a cancelled invite disappears from the person's list", async () => {
+    const r = await invite("dev-avery-owner", { email: "cancel.me@example.com", displayName: "Cancel Me", roleIds: [roleA.employee] });
+    const token = person("cancelme", "cancel.me@example.com");
+    expect((await call(token, "GET", "/v1/me")).body.invites).toHaveLength(1);
+    expect((await t.as("dev-avery-owner").del(`${A}/team/invites/${r.body.id}`)).status).toBe(204);
+    expect((await call(token, "GET", "/v1/me")).body.invites).toEqual([]);
+    expect((await call(token, "POST", `/v1/invites/${r.body.id}/accept`)).status).toBe(404);
+  });
+
+  it("only people who may add people can renew, and not for someone stronger than themselves", async () => {
+    const r = await invite("dev-avery-owner", { email: "future.boss@example.com", displayName: "Future Boss", roleIds: [roleA.owner] });
+    expect((await t.as("dev-morgan-manager").post(`${A}/team/invites/${r.body.id}/renew`)).status).toBe(403);
+    expect((await t.as("dev-riley-owner").post(`${A}/team/invites/${r.body.id}/renew`)).status).toBe(404);
+    expect((await t.as("dev-riley-owner").post(`${B}/team/invites/${r.body.id}/renew`)).status).toBe(404);
+    await t.as("dev-avery-owner").del(`${A}/team/invites/${r.body.id}`);
   });
 });
 
@@ -154,6 +273,7 @@ describe("removing people", () => {
   it("a removed person loses access at once; adding them again brings them back with the new role only", async () => {
     const token = person("rex", "rex.removed@example.com", "Rex");
     await invite("dev-avery-owner", { email: "rex.removed@example.com", displayName: "Rex", roleIds: [roleA.manager] });
+    await acceptAll(token);
     expect((await call(token, "GET", A)).status).toBe(200);
     const mid = (await call(token, "GET", "/v1/me")).body.memberships[0].membershipId as string;
 
@@ -163,8 +283,10 @@ describe("removing people", () => {
     expect((await call(token, "GET", "/v1/me")).body.memberships).toEqual([]);
 
     await invite("dev-avery-owner", { email: "rex.removed@example.com", displayName: "Rex", roleIds: [roleA.employee] });
-    // The apps load /v1/me when they open; that's where an already-registered person picks up new invites.
+    // Added again: they see the invite and must accept it again.
     expect((await call(token, "GET", A)).status).toBe(404);
+    expect((await call(token, "GET", "/v1/me")).body.memberships).toHaveLength(0);
+    await acceptAll(token);
     expect((await call(token, "GET", "/v1/me")).body.memberships).toHaveLength(1);
     const back = await call(token, "GET", A);
     expect(back.status).toBe(200);
@@ -181,5 +303,25 @@ describe("removing people", () => {
   it("can't touch people in another company", async () => {
     expect((await t.as("dev-avery-owner").patch(`${A}/team/members/00000000-0000-4b00-8000-00000000b002/status`, { status: "removed" })).status).toBe(404);
     expect((await t.as("dev-blake-employee").get(B)).status).toBe(200);
+  });
+});
+
+describe("trying it with test people (development sign-in)", () => {
+  it("Nia Newcomer has no company until an owner adds her email and she presses Accept", async () => {
+    const nia = t.as("dev-nia-newcomer");
+    expect((await nia.get("/v1/me")).body).toMatchObject({ memberships: [], invites: [] });
+    const r = await invite("dev-avery-owner", { email: "nia.newcomer@example.com", displayName: "Nia Newcomer", roleIds: [roleA.employee] });
+    expect(r.status).toBe(201);
+    // Development tokens carry the made-up person's email so the invite shows up.
+    const tokenRes = await t.app.inject({ method: "POST", url: "/dev/auth/token", payload: { subject: "dev-nia-newcomer" } });
+    const devToken = JSON.parse(tokenRes.body).accessToken as string;
+    const me = await call(devToken, "GET", "/v1/me");
+    expect(me.body.invites.map((i: { inviteId: string }) => i.inviteId)).toEqual([r.body.id]);
+    expect((await call(devToken, "GET", A)).status).toBe(404);
+    expect((await call(devToken, "POST", `/v1/invites/${r.body.id}/accept`)).status).toBe(200);
+    expect((await call(devToken, "GET", A)).status).toBe(200);
+    // Put her back outside every company for other test files.
+    const mid = (await call(devToken, "GET", "/v1/me")).body.memberships[0].membershipId as string;
+    expect((await t.as("dev-avery-owner").patch(`${A}/team/members/${mid}/status`, { status: "removed" })).status).toBe(200);
   });
 });

@@ -108,10 +108,11 @@ export function scratchDir(): Directory {
  * Cache folders where other libraries write unencrypted image files:
  * - "Camera": expo-camera saves every new photo here before the app encrypts it.
  * - "ImageManipulator": the thumbnail is made here before it is encrypted.
+ * - "ImagePicker": photos picked from the photo library (to add to a job, or as a profile picture) are copied here.
  * The app deletes these files about a second after each shot, but if the app is closed or
  * crashes in that second they would stay behind, unencrypted, until iOS clears the cache.
  */
-const OTHER_PLAINTEXT_CACHES = ["Camera", "ImageManipulator"];
+const OTHER_PLAINTEXT_CACHES = ["Camera", "ImageManipulator", "ImagePicker"];
 
 /**
  * Deletes every unencrypted temporary copy: our own scratch folder (uploads, shares) and the
