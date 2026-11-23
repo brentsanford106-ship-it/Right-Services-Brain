@@ -94,6 +94,7 @@ export async function markupRoutes(app: FastifyInstance, { db }: RouteDeps): Pro
       }
 
       let added = 0;
+      const ids: { clientRef: string; id: string }[] = [];
       for (const s of body.add) {
         const { id, created } = await insertIdempotent(
           tx, "photo_markups", s.clientRef, ctx.membershipId,
@@ -106,12 +107,14 @@ export async function markupRoutes(app: FastifyInstance, { db }: RouteDeps): Pro
           const { rowCount } = await tx.query("SELECT 1 FROM photo_markups WHERE id = $1 AND photo_id = $2", [id, photoId]);
           if (!rowCount) throw new HttpError("conflict", "This mark's id has already been used.");
         } else added++;
+        ids.push({ clientRef: s.clientRef, id });
       }
 
       const { rows: count } = await tx.query<{ n: number }>("SELECT count(*)::int AS n FROM photo_markups WHERE photo_id = $1 AND removed_at IS NULL", [photoId]);
       if (count[0]!.n > MAX_MARKS_PER_PHOTO) throw new HttpError("validation_failed", `A photo can have up to ${MAX_MARKS_PER_PHOTO} marks.`);
       if (added || removed) await recordAudit(tx, ctx, "photo_markup.changed", "photo", photoId, { added, removed, removedOthers });
-      return { items: await listMarks(tx, ctx, photoId) };
+      // `added` says which saved mark each new one became, so the app can attach a note (comment) to it.
+      return { items: await listMarks(tx, ctx, photoId), added: ids };
     });
   });
 }

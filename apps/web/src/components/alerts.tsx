@@ -9,13 +9,11 @@ import { PersonBadge } from "./photos";
 
 type List = { items: Notification[]; unreadCount: number };
 
-/** The 🔔 in the top bar: unread count, the latest alerts, and a click takes you to the photo. */
-export function AlertsBell() {
+/** The latest alerts and "mark read", shared by the 🔔 and the Overview page (one query, so both stay in step). */
+function useAlerts() {
   const orgId = useOrgId();
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
   const key = [orgId, "alerts"];
   // Checked every minute while the page is open (in-app alerts; no push messages yet).
   const q = useQuery({ queryKey: key, queryFn: () => api<List>(`/v1/orgs/${orgId}/notifications?limit=30`), refetchInterval: 60_000 });
@@ -23,6 +21,39 @@ export function AlertsBell() {
     mutationFn: (body: { ids?: string[]; all?: boolean }) => api<{ unreadCount: number }>(`/v1/orgs/${orgId}/notifications/read`, { method: "POST", body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),
   });
+  const go = (n: Notification) => {
+    if (!n.readAt) read.mutate({ ids: [n.id] });
+    navigate(`/orgs/${orgId}/jobs/${n.jobId}?photo=${n.photoId}`);
+  };
+  return { q, read, go, unread: q.data?.unreadCount ?? 0, items: q.data?.items ?? [] };
+}
+
+function AlertItems({ items, onOpen }: { items: Notification[]; onOpen: (n: Notification) => void }) {
+  return (
+    <ul>
+      {items.map((n) => (
+        <li key={n.id} className={n.readAt ? "" : "unread"}>
+          <button onClick={() => onOpen(n)}>
+            <PersonBadge id={n.actorId} name={n.actor} avatarAt={n.actorAvatarAt} className="sm" />
+            <span className="btext">
+              <span>{alertText(n)}</span>
+              {n.snippet && <span className="muted small">“{n.snippet}”</span>}
+            </span>
+            <span className="muted small">{alertAge(n.createdAt)}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const EMPTY = "Nothing yet. You'll see mentions, replies and issues here.";
+
+/** The 🔔 in the top bar: unread count, the latest alerts, and a click takes you to the photo. */
+export function AlertsBell() {
+  const { q, read, go, unread, items } = useAlerts();
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
@@ -31,13 +62,6 @@ export function AlertsBell() {
     document.addEventListener("keydown", esc);
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
   }, [open]);
-  const unread = q.data?.unreadCount ?? 0;
-  const items = q.data?.items ?? [];
-  const go = (n: Notification) => {
-    if (!n.readAt) read.mutate({ ids: [n.id] });
-    setOpen(false);
-    navigate(`/orgs/${orgId}/jobs/${n.jobId}?photo=${n.photoId}`);
-  };
   return (
     <div className="bell" ref={box}>
       <button className="bellbtn" aria-label={unread ? `Alerts, ${unread} new` : "Alerts"} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
@@ -50,24 +74,29 @@ export function AlertsBell() {
             {unread > 0 && <button className="link small" onClick={() => read.mutate({ all: true })}>Mark all read</button>}
           </div>
           {q.isError && <p className="error small">Alerts couldn't be loaded.</p>}
-          {q.data && !items.length && <p className="muted small">Nothing yet. You'll see mentions, replies and issues here.</p>}
-          <ul>
-            {items.map((n) => (
-              <li key={n.id} className={n.readAt ? "" : "unread"}>
-                <button onClick={() => go(n)}>
-                  <PersonBadge id={n.actorId} name={n.actor} avatarAt={n.actorAvatarAt} className="sm" />
-                  <span className="btext">
-                    <span>{alertText(n)}</span>
-                    {n.snippet && <span className="muted small">“{n.snippet}”</span>}
-                  </span>
-                  <span className="muted small">{alertAge(n.createdAt)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {q.data && !items.length && <p className="muted small">{EMPTY}</p>}
+          <AlertItems items={items} onOpen={(n) => { setOpen(false); go(n); }} />
         </div>
       )}
     </div>
+  );
+}
+
+/** The "Your alerts" section on the Overview page: new alerts first, then the latest read ones. */
+export function AlertsSection({ max = 8 }: { max?: number }) {
+  const { q, read, go, unread, items } = useAlerts();
+  const shown = [...items.filter((n) => !n.readAt), ...items.filter((n) => n.readAt)].slice(0, max);
+  return (
+    <section aria-label="Your alerts" className="alertsection">
+      <div className="bellhead">
+        <h2>🔔 Your alerts{unread > 0 ? ` (${unread} new)` : ""}</h2>
+        {unread > 0 && <button className="link small" onClick={() => read.mutate({ all: true })}>Mark all read</button>}
+      </div>
+      {q.isError && <p className="error small">Alerts couldn't be loaded.</p>}
+      {q.data && !items.length && <p className="muted small">{EMPTY}</p>}
+      <AlertItems items={shown} onOpen={go} />
+      {items.length > shown.length && <p className="muted small">Older alerts are under 🔔 at the top of the page.</p>}
+    </section>
   );
 }
 

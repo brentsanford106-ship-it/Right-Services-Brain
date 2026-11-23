@@ -117,18 +117,19 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 - **Who draws:** **photo_markups.create** ("Draw on photos"), on for Owner and Manager. Employees see drawings and comment on them but don't draw (JB's decision). An owner can switch drawing on for any role in Team & Roles.
 - **Removing marks:** people remove their own. **photo_markups.manage** (Owner by default) removes anyone's.
 - **Saved marks never change.** A mark can only be removed. Removed marks stay in the database (hidden) with who removed them and when. Editing is done by removing a mark and drawing a new one. The app's database login can only set the "removed" markers.
-- **Saving:** one Save sends every change from a drawing session at once (all or nothing). Each new mark carries its own id, so Save tapped twice never saves it twice. A photo can have up to 500 marks.
+- **Saving:** each mark is saved the moment it's drawn (JB, 2026-11-23: drawings were lost when the viewer was closed without pressing Save). There is no Save button; **Done** closes the tools, and **Undo** removes the last mark you made (on the server too). Each new mark carries its own id, so a resend never saves it twice, and the server's answer says which saved mark it became (`added`). A photo can have up to 500 marks.
+- **Note after drawing:** right after a mark is saved, a note box opens beside it ("What should be done here?"), with **Add note**, **No note** and **Remove drawing**. The note is posted as a normal comment about that mark, so it shows in Comments as "📍 About the red circle" and whoever took the photo gets an alert. Drawing the next mark closes the box without a note.
 - **Comments on a mark:** tap or click a drawing to select it, and the next comment is "about the red circle". Comments about a mark show "📍 About the red circle", and tapping that highlights the mark. The mark must be on the same photo, which the database checks.
 - **Website:** in the photo viewer:
   - **✎ Draw** (for people who can draw) and **Hide drawings / Show drawings**.
   - Zoom **−**, **100%** and **+**. You move around a zoomed photo with the scroll bars.
-  - The drawing tools: circle, arrow, pen, box, text, pin and remove. Six colors, three sizes, **Undo**, **Redo**, **Cancel** and **Save drawing**.
+  - The drawing tools: circle, arrow, pen, box, text, pin and remove. Six colors, three sizes, **Undo** and **Done**. The note box pops up next to each new drawing; Enter adds the note.
   - Arrow keys don't change photo while you are drawing.
 - **Phone:** on the photo screen:
   - Drawings show over the photo, with **Hide drawings / Show drawings**. Tapping a drawing selects it to comment on.
-  - **✎ Draw** opens a drawing screen with the same tools, colors, sizes, Undo and Redo. **Zoom** goes 1×, 2× or 3×, and **✋** moves around a zoomed photo.
-  - Cancel asks before throwing away unsaved marks.
-- **Offline:** marks already seen are kept (encrypted) and show without signal. **Saving a drawing needs a connection for now.** If Save fails, the drawing stays on screen to try again. Saving drawings offline is planned with step 5.
+  - **✎ Draw** opens a drawing screen with the same tools, colors, sizes and Undo. **Zoom** goes 1×, 2× or 3×, and **✋** moves around a zoomed photo.
+  - After each drawing, the note box replaces the tools until you add a note, tap No note, or start drawing again. **Done** (top left or bottom) goes back.
+- **Offline:** marks already seen are kept (encrypted) and show without signal. On the phone, a mark drawn with no signal waits in the encrypted offline outbox and is sent automatically later; its note waits in the comment outbox and says which mark it's about in words ("About the red circle: …"), because the mark has no id yet.
 - "Delete forever" of a photo also removes its marks.
 - The same drawing code is used on the website and the phone (`packages/photo-sync/src/markup.ts`). It can also produce an SVG of all marks, which step 5 uses for "share an annotated copy".
 
@@ -228,7 +229,7 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 
 **How it works**
 
-- When Save drawing, Report issue, or an issue button (Start, Send fix, Approve, Send back, Reopen, Assign) can't reach the server, the phone keeps the change in an **encrypted offline outbox** (`packages/photo-sync/src/actions.ts`, files `pa-…` in the same encrypted store as photos). It's sent automatically by the same upload run as photos and comments, after them, in the order it was made.
+- When a new drawing, a removed drawing, Report issue, or an issue button (Start, Send fix, Approve, Send back, Reopen, Assign) can't reach the server, the phone keeps the change in an **encrypted offline outbox** (`packages/photo-sync/src/actions.ts`, files `pa-…` in the same encrypted store as photos). It's sent automatically by the same upload run as photos and comments, after them, in the order it was made.
 - Each change keeps its phone-made ids (`clientRef`), so if the signal drops mid-send and it's sent again, the server applies it once.
 - **Conflict safety:** every issue change carries the status the person saw. If someone changed the issue first (for example, a manager approved it while the phone had no signal), the server changes **nothing** and answers *"This issue changed while you were away: it is now …"*. The phone keeps that change with the reason, shown on the issue with **Try again** and **Discard**. Changes to the same issue (or drawings on the same photo) never overtake each other.
 - A drawing waiting to be sent shows on the photo (marked "⏳ waiting for signal"). Removed marks are hidden. Drawing again on that photo waits until it's sent. A waiting mark can't be commented on until it's on the server.

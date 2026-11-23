@@ -242,7 +242,7 @@ export function PhotoGrid({ items, onOpen, showJob, selected, onToggle }: { item
             aria-label={`${selected ? "Select" : "Open"} ${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}, taken by ${takenByLabel(p)}${p.flagged ? ", flagged" : ""}${p.commentCount ? `, ${p.commentCount} comment${p.commentCount === 1 ? "" : "s"}` : ""}${p.openIssueCount ? `, ${p.openIssueCount} to fix` : ""}`}
           >
             {selected && <span className={`pick ${selected.has(p.id) ? "on" : ""}`} aria-hidden>{selected.has(p.id) ? "✓" : ""}</span>}
-            {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content?variant=thumb`} alt="" className="thumb" /> : <div className="imgph thumb">{p.uploadStatus === "pending" ? "File not uploaded yet" : "No preview"}</div>}
+            {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content?variant=thumb`} alt="" className="thumb" /> : <div className="imgph thumb">No picture</div>}
             {p.flagged && <span className="flagmark" aria-hidden>⚑</span>}
             {(p.commentCount > 0 || p.openIssueCount > 0) && (
               <span className="marksrow">
@@ -375,7 +375,7 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
               )}
             </div>
           );
-        })() : <div className="imgph full">{p.uploadStatus === "pending" ? "The phone hasn't uploaded this file yet." : "No preview available (e.g. HEIC). Download the original."}</div>}
+        })() : <div className="imgph full">{p.uploadStatus === "pending" ? "No picture" : "No preview available (e.g. HEIC). Download the original."}</div>}
         <div className="mk-viewbar" role="group" aria-label="Photo view">
           <button onClick={() => setZoom((z) => Math.max(1, z / 1.5))} disabled={zoom <= 1} aria-label="Zoom out">−</button>
           <button onClick={() => setZoom(1)} disabled={zoom === 1} aria-label="Fit to screen">{Math.round(zoom * 100)}%</button>
