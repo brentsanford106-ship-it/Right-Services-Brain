@@ -445,6 +445,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (!p) throw new Error("Sign in first.");
         const ctx = await holder.current!.api.get<{ permissions: string[]; signInEveryDays?: number }>(`/v1/orgs/${orgId}`);
         await holder.current!.queue.claim({ subject: p.subject, displayName: p.displayName });
+        // A fresh sign-in may come with access turned back on (for example after a suspension): try photos that were
+        // refused before once more. Anything still refused simply goes back to "needs attention".
+        for (const item of holder.current!.queue.all()) {
+          if (item.needsAttention) await holder.current!.queue.retry(item.localId);
+        }
         const s: Session = {
           subject: p.subject,
           displayName: p.displayName,
