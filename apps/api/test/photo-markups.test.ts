@@ -85,10 +85,13 @@ describe("drawing on photos", () => {
   it("Save tapped twice (or resent after a dropped connection) saves each mark once", async () => {
     const photo = await newPhoto();
     const body = { add: [circle()] };
-    await save("dev-morgan-manager", photo, body);
+    const first = await save("dev-morgan-manager", photo, body);
+    // The answer says which saved mark the new one became (so a note can be attached to it).
+    expect(first.body.added).toEqual([{ clientRef: body.add[0]!.clientRef, id: first.body.items[0].id }]);
     const again = await save("dev-morgan-manager", photo, body);
     expect(again.status).toBe(200);
     expect(again.body.items).toHaveLength(1);
+    expect(again.body.added).toEqual(first.body.added);
     // The same id on a different photo is refused.
     expect((await save("dev-morgan-manager", await newPhoto(), body)).status).toBe(409);
   });
