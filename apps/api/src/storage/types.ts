@@ -4,6 +4,11 @@
  */
 export interface ObjectStorage {
   put(key: string, data: Buffer, contentType: string): Promise<void>;
+  /**
+   * Writes the file only if nothing is stored under `key` yet. Returns false (and changes nothing) if a file
+   * is already there. Used for photo originals so a stored original can never be replaced.
+   */
+  putIfAbsent(key: string, data: Buffer, contentType: string): Promise<boolean>;
   get(key: string): Promise<Buffer | null>;
   /** Removes a stored file. Removing a file that is already gone is not an error. */
   delete(key: string): Promise<void>;

@@ -216,7 +216,15 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
     const previewKey = processed.preview ? photoKey(orgId, photoId) + "/preview" : null;
     // Files are written first, then the record is marked stored in one transaction.
     // If the process dies in between, the photo simply stays "pending" and the phone retries.
-    await storage.put(originalKey, bytes, declared);
+    // The original is write-once: if a file is already there (an earlier attempt that died before the record was
+    // updated, or the same upload arriving twice at once), it is kept only if it is byte-for-byte this file.
+    // So a stored original is never replaced, and the record's checksum always matches the stored file.
+    if (!(await storage.putIfAbsent(originalKey, bytes, declared))) {
+      const existing = await storage.get(originalKey);
+      if (!existing || sha256(existing) !== processed.originalSha256) {
+        throw new HttpError("conflict", "This photo already has a different file.");
+      }
+    }
     if (processed.preview && previewKey) await storage.put(previewKey, processed.preview.data, "image/jpeg");
 
     return inOrg(db, req, orgId, async (tx, ctx) => {
@@ -227,7 +235,18 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
         [photoId, originalKey, previewKey, processed.originalSha256, bytes.length,
          processed.preview?.width ?? null, processed.preview?.height ?? null, ctx.membershipId],
       );
-      if (!rowCount) throw new HttpError("conflict", "This photo was already uploaded.");
+      if (!rowCount) {
+        // Another copy of this same upload finished first (for example the phone retried while the first try was
+        // still on its way). Same file: that's a success, not an error. Anything else: refuse.
+        const { rows: now } = await tx.query<{ upload_status: string; original_sha256: string | null }>(
+          "SELECT upload_status, original_sha256 FROM photos WHERE id = $1",
+          [photoId],
+        );
+        if (now[0]?.upload_status === "stored" && now[0].original_sha256 === processed.originalSha256) {
+          return { id: photoId, uploadStatus: "stored", duplicate: true };
+        }
+        throw new HttpError("conflict", "This photo was already uploaded.");
+      }
       await recordAudit(tx, ctx, "photo.stored", "photo", photoId, { bytes: bytes.length });
       return { id: photoId, uploadStatus: "stored", duplicate: false };
     });
@@ -403,8 +422,10 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
     const body = parse(ResolvePhotoFlagRequest, req.body);
     return inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("photo_flags.manage");
-      const { rows } = await tx.query<{ id: string; status: string }>("SELECT id, status FROM photo_flags WHERE id = $1", [flagId]);
+      const { rows } = await tx.query<{ id: string; status: string; photo_id: string }>("SELECT id, status, photo_id FROM photo_flags WHERE id = $1", [flagId]);
       if (!rows[0]) throw notFound();
+      // Only flags on photos (and jobs) this person can see. A custom role may manage flags but see only assigned jobs.
+      await loadVisiblePhoto(tx, ctx, rows[0].photo_id);
       if (rows[0].status !== "open") throw new HttpError("conflict", "This flag is already resolved.");
       await tx.query(
         `UPDATE photo_flags SET status = 'resolved', resolved_by_membership_id = $2, resolution_note = $3, resolved_at = now()
@@ -420,12 +441,15 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
     const { orgId } = parse(OrgParams, req.params);
     return inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("photo_flags.manage");
+      const vis = jobVisibilitySql(ctx); // only flags on photos of jobs this person can see
       const { rows } = await tx.query<{ id: string; photo_id: string; job_number: string; reason: string; created_at: Date }>(
         `SELECT f.id, f.photo_id, j.job_number, f.reason, f.created_at
            FROM photo_flags f
            JOIN photos p ON p.organization_id = f.organization_id AND p.id = f.photo_id
            JOIN jobs j ON j.organization_id = p.organization_id AND j.id = p.job_id
-          WHERE f.status = 'open' ORDER BY f.created_at`,
+          WHERE f.status = 'open' AND p.deleted_at IS NULL AND j.deleted_at IS NULL AND (${vis.where})
+          ORDER BY f.created_at`,
+        [ctx.membershipId],
       );
       return { items: rows.map((r) => ({ id: r.id, photoId: r.photo_id, jobNumber: r.job_number, reason: r.reason, createdAt: r.created_at.toISOString() })) };
     });

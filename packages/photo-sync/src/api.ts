@@ -57,6 +57,8 @@ export interface HttpClientOptions {
   getToken: () => Promise<string | null>;
   fetch: FetchLike;
   timeoutMs?: number;
+  /** Time limit for sending one photo file (default 10 minutes). */
+  uploadTimeoutMs?: number;
   /**
    * Optional platform override for sending image bytes (the phone streams from a file).
    * Must behave like `fetch` with a PUT and raw body.
@@ -75,11 +77,31 @@ export class HttpClient implements PhotoApi {
   }
 
   private async handle<T>(res: { status: number; ok: boolean; text(): Promise<string> }): Promise<T> {
-    const text = await res.text();
-    const body = text ? (JSON.parse(text) as unknown) : null;
+    let text: string;
+    try {
+      text = await res.text();
+    } catch {
+      throw new NetworkError("The connection dropped while the server was answering.");
+    }
+    let body: unknown = null;
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        // Our server always answers in JSON. A web page instead means something in between answered: a Wi-Fi
+        // sign-in page (hotel, job-site hotspot), or Azure's own error page while the server restarts. Treat it as
+        // "no connection" so photos are retried later, never as a real refusal.
+        throw new NetworkError(res.status >= 500 ? `The server is not available right now (${res.status}).` : "Got an unexpected answer. The Wi-Fi may need you to sign in.");
+      }
+    }
     if (res.ok) return body as T;
     const err = (body as { error?: { code?: string; message?: string; requestId?: string } } | null)?.error;
-    throw new ApiError(res.status, err?.code ?? "error", err?.message ?? `Request failed (${res.status}).`, err?.requestId);
+    // An error without our server's error shape (for example an empty 404 from a proxy) is not a real answer either.
+    if (!err?.code || !err.requestId) {
+      if (res.status === 401) throw new ApiError(401, "unauthenticated", "Please sign in again.");
+      throw new NetworkError(`The server did not answer properly (${res.status}). Will retry.`);
+    }
+    throw new ApiError(res.status, err.code, err.message ?? `Request failed (${res.status}).`, err.requestId);
   }
 
   private async send<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -136,12 +158,23 @@ export class HttpClient implements PhotoApi {
     const url = `${this.o.baseUrl}/v1/orgs/${orgId}/photos/${photoId}/content`;
     const headers = { authorization: `Bearer ${await this.token()}`, "content-type": contentType };
     let res;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // A very weak signal can leave an upload hanging for a long time, which would hold up every photo behind it.
+    // After the time limit, give up on this try and retry later. Safe: sending the same file again is accepted.
+    const limit = this.o.uploadTimeoutMs ?? 10 * 60_000;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new NetworkError("The upload took too long. Will retry.")), limit);
+    });
     try {
-      res = this.o.putBytes
-        ? await this.o.putBytes(url, headers, bytes)
-        : await this.o.fetch(url, { method: "PUT", headers, body: bytes });
-    } catch {
-      throw new NetworkError();
+      const send = this.o.putBytes
+        ? this.o.putBytes(url, headers, bytes)
+        : this.o.fetch(url, { method: "PUT", headers, body: bytes });
+      send.catch(() => undefined); // if it fails after the time limit, nobody is waiting for it
+      res = await Promise.race([send, timeout]);
+    } catch (e) {
+      throw e instanceof NetworkError ? e : new NetworkError();
+    } finally {
+      clearTimeout(timer);
     }
     return this.handle<{ uploadStatus: string; duplicate: boolean }>(res);
   }

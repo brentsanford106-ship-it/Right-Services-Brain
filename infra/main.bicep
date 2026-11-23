@@ -203,6 +203,9 @@ resource api 'Microsoft.Web/sites@2023-12-01' = {
         { name: 'OIDC_AUDIENCE', value: oidcAudience }
         { name: 'OIDC_JWKS_URI', value: oidcJwksUri }
         { name: 'LOG_LEVEL', value: 'info' }
+        // Requests per minute from one address. A whole crew can share one address (a job-site hotspot), and the
+        // website loads each photo thumbnail as its own request, so the 300 default would slow the office down.
+        { name: 'RATE_LIMIT_PER_MINUTE', value: '1200' }
       ]
     }
   }

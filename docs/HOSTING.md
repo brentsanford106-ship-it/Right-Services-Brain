@@ -57,13 +57,26 @@ Before you start: the Microsoft sign-in setup (docs/AUTHENTICATION.md) is done, 
 2. **Open Cloud Shell:** the `>_` button at the top of the Azure portal. Choose **Bash**.
 3. **Get the code:** `git clone https://github.com/brentsanford106-ship-it/Right-Services-Brain.git && cd Right-Services-Brain`. It's a private repository, so GitHub will ask you to sign in; Claude will walk you through it.
 4. **Create everything:** `bash infra/go-live.sh you@example.com`. Type `yes` when asked. It takes 5-15 minutes. Charges start here.
-5. **Copy the values** it prints into GitHub: repository **Settings > Environments > New environment "production"**. Tick "Required reviewers", add yourself, then add each value under **Environment variables**.
+5. **Copy the values** it prints into GitHub: repository **Settings > Environments > New environment "production"**. Tick "Required reviewers", add yourself. Under **Deployment branches and tags**, choose **Selected branches** and add only the branch you deploy from (for example `main`). Azure trusts any run that uses the "production" environment, so these two settings are what stop a run from another branch. Then add each value under **Environment variables**.
 6. **Add the sign-in IDs** (from the Microsoft setup) as variables too: `ENTRA_AUTHORITY`, `ENTRA_WEB_CLIENT_ID`, `ENTRA_API_SCOPE`. Then run the go-live script again with `OIDC_ISSUER=... OIDC_AUDIENCE=... OIDC_JWKS_URI=...` in front, so the API gets them.
 7. **Deploy:** GitHub **Actions > Deploy > Run workflow**, then approve it.
 8. **Create the company:** Claude walks you through `pnpm db:setup-company` against the new database, with your and Nate's email addresses.
 9. **Sign in** on the website, then on the phone (the phone app needs `EXPO_PUBLIC_API_BASE_URL` set to the API address).
 10. **Practice restore:** restore the database to a new server from 10 minutes ago, check it, then delete the copy.
 11. **Security review** before real company photos go in.
+
+## Pre-go-live review (2026-11-22)
+
+A third review pass (security and reliability) found and fixed these, each with an automated test (apps/api/test/go-live-checks.test.ts, packages/photo-sync/test/http-client.test.ts):
+
+- Flag review list and "resolve flag" now only cover jobs the person can see (mattered for custom roles).
+- Cancelling an invite follows the same "no one stronger than you" rule as suspending someone.
+- Photo originals are write-once: a stored original can't be replaced, and the same file arriving twice at once is a success instead of a false "different file" error.
+- A person's very first sign-in no longer fails if two requests arrive at the same moment (database fix 0015).
+- The rate limit now uses the caller's real address in Azure; a made-up `X-Forwarded-For` header can't get around it. Production allows 1,200 requests a minute per address (the website loads each thumbnail separately, and a crew may share one hotspot).
+- The phone treats a Wi-Fi sign-in page, Azure's error page or a non-API 404 as "no connection" and retries, instead of marking photos "needs attention". Such a 404 can no longer make the phone think the person was removed (which wipes the phone). A hanging upload gives up after 10 minutes and retries.
+
+Still open (decisions or later work, not bugs): invites never expire; someone added by email joins at their next sign-in without an "accept" step; when a person is suspended or removed, their phone deletes photos it hasn't uploaded yet; the "sign in again every N days" setting is enforced by the apps, not the server; the database firewall admits any Azure address; dependency warnings are only in test and build tools (Azurite, Expo), not in the server that runs in Azure.
 
 ## Whose account: Nate's company or yours
 

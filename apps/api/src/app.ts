@@ -42,6 +42,23 @@ export const LOG_REDACT_PATHS = [
   'res.headers["set-cookie"]',
 ];
 
+/**
+ * The caller's address, for the rate limit. In Azure, App Service's front end adds the real address to the END of
+ * X-Forwarded-For (as "address:port"); anything before it was typed by the caller and can't be trusted, so it is
+ * ignored. Without this, someone could dodge the limit by sending a made-up X-Forwarded-For on every request.
+ */
+export function clientAddress(headers: Record<string, string | string[] | undefined>, socketAddress: string | undefined, behindProxy: boolean): string {
+  const xff = headers["x-forwarded-for"];
+  const raw = behindProxy ? (Array.isArray(xff) ? xff.join(",") : xff) : undefined;
+  const last = raw?.split(",").map((s) => s.trim()).filter(Boolean).pop();
+  if (!last) return socketAddress ?? "unknown";
+  const bracketed = /^\[([0-9a-fA-F:.]+)\](?::\d+)?$/.exec(last); // [IPv6]:port
+  if (bracketed) return bracketed[1]!;
+  const v4 = /^(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?$/.exec(last); // IPv4 or IPv4:port
+  if (v4) return v4[1]!;
+  return last;
+}
+
 const PG_ERROR_MAP: Record<string, HttpError> = {
   "23505": new HttpError("conflict"),
   "23503": new HttpError("validation_failed", "A referenced record does not exist."),
@@ -69,8 +86,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     genReqId: () => randomUUID(),
     requestIdHeader: false, // never trust a client-supplied request id
     bodyLimit: 64 * 1024, // JSON only; photo uploads have their own route and limit
-    trustProxy: config.appEnv === "staging" || config.appEnv === "production",
+    // Not trusted: X-Forwarded-For's first entries come from the caller. The rate limit reads the address itself (clientAddress).
+    trustProxy: false,
   });
+  const behindProxy = config.appEnv === "staging" || config.appEnv === "production";
 
   app.decorateRequest("principal", null);
   app.decorateRequest("identity", null);
@@ -89,6 +108,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await app.register(rateLimit, {
     max: config.rateLimitPerMinute,
     timeWindow: "1 minute",
+    keyGenerator: (req) => clientAddress(req.headers, req.socket.remoteAddress, behindProxy),
     errorResponseBuilder: (_req, ctx) => {
       const err = new HttpError("rate_limited");
       (err as unknown as { retryAfter: string }).retryAfter = ctx.after;

@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { assertValidKey, type ObjectStorage } from "./types.js";
 
@@ -27,6 +27,23 @@ export class LocalDiskStorage implements ObjectStorage {
     const tmp = `${full}.${process.pid}.tmp`;
     await writeFile(tmp, data, { mode: 0o600 });
     await rename(tmp, full);
+  }
+
+  async putIfAbsent(key: string, data: Buffer): Promise<boolean> {
+    const full = this.resolve(key);
+    await mkdir(path.dirname(full), { recursive: true });
+    const tmp = `${full}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    await writeFile(tmp, data, { mode: 0o600 });
+    try {
+      // link() fails if the target exists, so the complete file appears at once, and only if there was none.
+      await link(tmp, full);
+      return true;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw e;
+    } finally {
+      await rm(tmp, { force: true });
+    }
   }
 
   async get(key: string): Promise<Buffer | null> {
