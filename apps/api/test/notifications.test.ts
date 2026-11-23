@@ -149,4 +149,18 @@ describe("in-app alerts", () => {
       await app.end();
     }
   });
+  it("a role that can't see jobs has no alerts (and no errors)", async () => {
+    const { adminClient } = await import("./helpers.js");
+    const admin = await adminClient();
+    try {
+      await admin.query(`DELETE FROM role_permissions rp USING roles r WHERE rp.role_id = r.id AND r.organization_id = $1 AND r.key = 'employee' AND rp.permission_key = 'jobs.read_assigned'`, [ORG_A]);
+      const r = await t.as("dev-eli-employee").get(`${A}/notifications`);
+      expect(r.status).toBe(200);
+      expect(r.body).toMatchObject({ items: [], unreadCount: 0 });
+    } finally {
+      await admin.query(`INSERT INTO role_permissions (organization_id, role_id, permission_key)
+        SELECT organization_id, id, 'jobs.read_assigned' FROM roles WHERE organization_id = $1 AND key = 'employee' ON CONFLICT DO NOTHING`, [ORG_A]);
+      await admin.end();
+    }
+  });
 });

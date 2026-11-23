@@ -12,7 +12,7 @@ It is built in six steps, each its own pull request, tested on a real iPhone bef
 | 3 | Markup (circle, arrow, pen, box, text, pin), show/hide, zoom | Built and tested automatically, **not yet tested on an iPhone** |
 | 4 | Issues: assign, In Progress, follow-up photo, send for review, approve, send back, reopen, job Issues tab, To Fix list, employee Report issue | Built and tested automatically, **not yet tested on an iPhone** |
 | 5 | In-app alerts, per-person alert settings, offline polish, sharing an annotated copy | 5a alerts and settings: built and tested automatically, **not yet tested on an iPhone**. 5b offline drawings and issue changes: built and tested automatically, **not yet tested on an iPhone**. 5c sharing a marked-up copy: built and tested automatically, **not yet tested on an iPhone** |
-| 6 | Company-wall tests for everything new, full acceptance run on iPhone and web | Not started |
+| 6 | Company-wall tests for everything new, full acceptance run on iPhone and web | Wall and permission tests done for everything new (see SECURITY.md). **The iPhone and website acceptance run is JB's test guide (Parts 0–10).** |
 
 JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the paid Apple account and a real build); employees comment, reply and send fixes for approval but don't draw; employees can report issues (they go to the job's Issues list unassigned); every fix needs a manager's approval; keep In Progress, profile pictures, sort by photographer, alert settings and photo-library import.
 
@@ -263,4 +263,10 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 | Marked-up copy: drawings in the right place, same size, no metadata, audited, permission switch, walls, photo unchanged | Real, tested over HTTP (`apps/api/test/photo-markups.test.ts`) |
 | Website button | Real, tested in a simulated browser |
 | Phone "With drawings" share | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |
+
+## Step 6: walls and security for everything new
+
+- Every new table is in the database wall tests (forced row-level security and exact grants), and each feature's HTTP tests include another company, people not on the job, and switching the permission off. The summary is in `docs/SECURITY.md` ("Photo collaboration").
+- Found and fixed in this pass: someone whose role can't see any jobs got an error on every page from the alert check. They now simply have no alerts (tested).
+- Still to do: JB's run of the test guide on a real iPhone and in a browser (Parts 0–10). Push notifications when the app is closed need the Apple account. Gallery paging for very large jobs is still not built.
 

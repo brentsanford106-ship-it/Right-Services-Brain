@@ -24,7 +24,12 @@ function visibleSql(ctx: OrgContext, joins = ""): string {
     JOIN jobs j ON j.organization_id = n.organization_id AND j.id = n.job_id AND j.deleted_at IS NULL
     JOIN photos p ON p.organization_id = n.organization_id AND p.id = n.photo_id AND p.deleted_at IS NULL
     ${joins}
-   WHERE n.recipient_membership_id = $1 AND (${jobVisibilitySql(ctx).where})`;
+   WHERE n.recipient_membership_id = $1 AND (${jobWhere(ctx)})`;
+}
+
+/** Someone whose role can't see any jobs simply has no alerts (rather than an error on every page). */
+function jobWhere(ctx: OrgContext): string {
+  return ctx.has("jobs.read_all") || ctx.has("jobs.read_assigned") ? jobVisibilitySql(ctx).where : "FALSE AND $1::uuid IS NOT NULL";
 }
 
 const toNotification = (r: Row): Notification => ({
