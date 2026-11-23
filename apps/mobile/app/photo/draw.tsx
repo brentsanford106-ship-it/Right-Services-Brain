@@ -57,7 +57,9 @@ export default function Draw() {
   const [noteFor, setNoteFor] = useState<{ key: string; name: string } | null>(null);
   const [note, setNote] = useState("");
   const { width, height } = useWindowDimensions();
-  const box = fitRect(width, height * 0.55, W, H);
+  // The photo gets all the room above the tools (measured), as big as it fits without cropping.
+  const [area, setArea] = useState({ w: width, h: height * 0.55 });
+  const box = fitRect(area.w, area.h, W, H);
   const dispW = box.w * zoom;
   const dispH = box.h * zoom;
 
@@ -218,21 +220,26 @@ export default function Draw() {
       {!items ? (
         <Text style={{ color: "#fff", padding: 16 }}>{offline ? "No signal, and this photo's drawings haven't been saved on this phone yet. Open the photo once with signal, then try again." : "Loading the drawing…"}</Text>
       ) : null}
+      <View style={{ flex: 1 }} onLayout={(e) => {
+        const { width: lw, height: lh } = e.nativeEvent.layout;
+        if (lw > 0 && lh > 0 && (Math.abs(lw - area.w) > 1 || Math.abs(lh - area.h) > 1)) setArea({ w: lw, h: lh });
+      }}>
       <ScrollView
-        style={{ maxHeight: height * 0.55 }}
-        contentContainerStyle={{ minWidth: width, minHeight: Math.min(height * 0.55, dispH), alignItems: "center", justifyContent: "center" }}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ minWidth: area.w, minHeight: area.h, alignItems: "center", justifyContent: "center" }}
         horizontal={false}
         scrollEnabled={tool === "move"}
       >
-        <ScrollView horizontal scrollEnabled={tool === "move"} contentContainerStyle={{ minWidth: width, alignItems: "center", justifyContent: "center" }}>
+        <ScrollView horizontal scrollEnabled={tool === "move"} contentContainerStyle={{ minWidth: area.w, alignItems: "center", justifyContent: "center" }}>
           <View style={{ width: dispW, height: dispH }} {...pan.panHandlers} accessibilityLabel="Photo drawing area">
             <ServerImage photoId={photoId} style={{ width: dispW, height: dispH }} contain />
             <MarksLayer marks={items ?? []} w={W} h={H} width={dispW} height={dispH} preview={live} highlight={noteFor ? (items ?? []).findIndex((m) => m.key === noteFor.key) : undefined} />
           </View>
         </ScrollView>
       </ScrollView>
+      </View>
 
-      <ScrollView style={{ backgroundColor: C.bg }} contentContainerStyle={{ padding: 12, gap: 10 }} keyboardShouldPersistTaps="handled">
+      <ScrollView style={{ backgroundColor: C.bg, flexGrow: 0, flexShrink: 0, maxHeight: height * 0.5 }} contentContainerStyle={{ padding: 10, gap: 8 }} keyboardShouldPersistTaps="handled">
         {noteFor ? (
           <View style={{ gap: 8 }} accessibilityLabel={`Note for the ${noteFor.name}`}>
             <Text style={{ fontSize: 17, fontWeight: "700", color: C.text }}>Note for the {noteFor.name}</Text>
@@ -247,27 +254,27 @@ export default function Draw() {
           </View>
         ) : null}
         {noteFor ? null : <>
-        <ScrollView horizontal contentContainerStyle={{ gap: 6 }}>
+        {/* Tools, colors and sizes share one swipeable row, so the photo gets as much of the screen as possible. */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexShrink: 0 }} contentContainerStyle={{ gap: 6, alignItems: "center" }}>
           {TOOLS.map((t) => (
             <Pressable key={t.value} onPress={() => setTool(t.value)} accessibilityRole="button" accessibilityLabel={t.name} accessibilityState={{ selected: tool === t.value }}
-              style={{ width: 46, height: 46, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: tool === t.value ? C.ink : C.card, borderWidth: 1, borderColor: C.line }}>
-              <Text style={{ fontSize: 20, color: tool === t.value ? "#fff" : C.text }}>{t.label}</Text>
+              style={{ width: 42, height: 42, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: tool === t.value ? C.ink : C.card, borderWidth: 1, borderColor: C.line }}>
+              <Text style={{ fontSize: 19, color: tool === t.value ? "#fff" : C.text }}>{t.label}</Text>
             </Pressable>
           ))}
-        </ScrollView>
-        <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
+          <View style={{ width: 1, height: 30, backgroundColor: C.line, marginHorizontal: 4 }} />
           {MARKUP_COLORS.map((c) => (
             <Pressable key={c} onPress={() => setColor(c)} accessibilityRole="button" accessibilityLabel={c} accessibilityState={{ selected: color === c }}
               style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: COLOR_HEX[c], borderWidth: color === c ? 3 : 1, borderColor: color === c ? C.brand : C.line }} />
           ))}
-          <View style={{ flex: 1 }} />
+          <View style={{ width: 1, height: 30, backgroundColor: C.line, marginHorizontal: 4 }} />
           {([1, 2, 3] as MarkupSize[]).map((z) => (
             <Pressable key={z} onPress={() => setSize(z)} accessibilityRole="button" accessibilityLabel={["Thin", "Medium", "Thick"][z - 1]} accessibilityState={{ selected: size === z }}
               style={{ width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: size === z ? C.brand : C.line }}>
               <View style={{ width: 18, height: z * 2 + 1, backgroundColor: C.text, borderRadius: 2 }} />
             </Pressable>
           ))}
-        </View>
+        </ScrollView>
         {tool === "text" || tool === "pin" ? (
           <TextInput style={s.input} maxLength={LABEL_MAX} value={text} onChangeText={setText}
             placeholder={tool === "text" ? "Type the words, then tap the photo" : "Optional pin label, then tap the photo"} placeholderTextColor={C.muted} />
@@ -275,10 +282,9 @@ export default function Draw() {
         <View style={{ flexDirection: "row", gap: 8 }}>
           <Button title="↶ Undo" kind="secondary" style={{ flex: 1 }} disabled={!lastMine || busy} onPress={() => { if (lastMine) void removeMark(lastMine); }} />
           <Button title={`Zoom ${zoom}×`} kind="secondary" style={{ flex: 1 }} onPress={() => { setZoom(ZOOMS[(ZOOMS.indexOf(zoom) + 1) % ZOOMS.length]!); if (zoom === 1) setTool("move"); }} />
+          <Button title="Done" busy={busy} style={{ flex: 1 }} onPress={() => router.back()} />
         </View>
-        <Button title="Done" busy={busy} onPress={() => router.back()} />
         {waiting ? <Text style={s.muted}>{waiting} drawing{waiting === 1 ? "" : "s"} saved on this phone, sent when you have signal.</Text> : null}
-        <Text style={s.muted}>Drag on the photo to draw. Each drawing is saved straight away, then you can add a note. The photo itself never changes. Zoomed in? Use ✋ to move around.</Text>
         </>}
       </ScrollView>
     </KeyboardAvoidingView>
