@@ -3,15 +3,15 @@ import { Alert, KeyboardAvoidingView, PanResponder, Platform, Pressable, ScrollV
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import * as Crypto from "expo-crypto";
 import {
-  COLOR_HEX, LABEL_MAX, MARKUP_COLORS, NetworkError, ApiError, clampPoint, describeMark, hitTest, markNames, shapeProblem, thinPen, tooSmall,
-  type MarkupColor, type MarkupKind, type MarkupShape, type MarkupSize, type Point,
+  COLOR_HEX, LABEL_MAX, MARKUP_COLORS, NetworkError, ApiError, clampPoint, clampView, describeMark, distance, hitTest, markNames, midpoint, photoRect, pinchTo, shapeProblem, thinPen, tooSmall, touchToPhoto,
+  type MarkupColor, type MarkupKind, type MarkupShape, type MarkupSize, type Pinch, type Point, type View as ZoomView,
 } from "@rsb/photo-sync";
 import { useApp } from "../../src/state";
 import { ServerImage } from "../../src/photos";
 import { MarksLayer, fitRect, useMarks } from "../../src/markup";
 import { Button, C, s } from "../../src/ui";
 
-type Tool = MarkupKind | "erase" | "move";
+type Tool = MarkupKind | "erase";
 const TOOLS: { value: Tool; label: string; name: string }[] = [
   { value: "circle", label: "◯", name: "Circle" },
   { value: "arrow", label: "➜", name: "Arrow" },
@@ -20,9 +20,7 @@ const TOOLS: { value: Tool; label: string; name: string }[] = [
   { value: "text", label: "T", name: "Text" },
   { value: "pin", label: "📍", name: "Pin" },
   { value: "erase", label: "⌫", name: "Remove a mark" },
-  { value: "move", label: "✋", name: "Move (when zoomed)" },
 ];
-const ZOOMS = [1, 2, 3];
 
 /** One mark on the drawing screen: saved on the server (savedId), or waiting on this phone for signal (queuedId). */
 type Item = MarkupShape & { key: string; savedId: string | null; queuedId: string | null; canRemove: boolean };
@@ -50,7 +48,8 @@ export default function Draw() {
   const [color, setColor] = useState<MarkupColor>("red");
   const [size, setSize] = useState<MarkupSize>(2);
   const [text, setText] = useState("");
-  const [zoom, setZoom] = useState(1);
+  // Pinch with two fingers to zoom in and out and to move around; one finger draws.
+  const [view, setView] = useState<ZoomView>({ zoom: 1, x: 0, y: 0 });
   const [live, setLive] = useState<MarkupShape | null>(null);
   const [busy, setBusy] = useState(false);
   const [mine, setMine] = useState<string[]>([]); // keys drawn this time, for Undo
@@ -60,8 +59,12 @@ export default function Draw() {
   // The photo gets all the room above the tools (measured), as big as it fits without cropping.
   const [area, setArea] = useState({ w: width, h: height * 0.55 });
   const box = fitRect(area.w, area.h, W, H);
-  const dispW = box.w * zoom;
-  const dispH = box.h * zoom;
+  const base = { w: box.w, h: box.h };
+  const rect = photoRect(view, base, area);
+  const dispW = rect.w;
+  const dispH = rect.h;
+  const origin = useRef<[number, number]>([0, 0]); // the photo area's place on the screen
+  const areaRef = useRef<React.ComponentRef<typeof View>>(null);
 
   const changesPath = `/v1/orgs/${orgId}/photos/${photoId}/markups/changes`;
   const patch = (key: string, ch: Partial<Item>) => setItems((v) => (v ?? []).map((m) => (m.key === key ? { ...m, ...ch } : m)));
@@ -151,10 +154,17 @@ export default function Draw() {
   };
 
   // Latest values for the touch handler (it's made once).
-  const ref = useRef({ tool, color, size, text, dispW, dispH, items, live, busy, noteFor, saveMark, removeMark });
-  ref.current = { tool, color, size, text, dispW, dispH, items, live, busy, noteFor, saveMark, removeMark };
+  const ref = useRef({ tool, color, size, text, dispW, dispH, items, live, busy, noteFor, saveMark, removeMark, view, base, area, pinch: null as Pinch | null });
+  Object.assign(ref.current, { tool, color, size, text, dispW, dispH, items, live: ref.current.live, busy, noteFor, saveMark, removeMark, view, base, area });
 
-  const at = (x: number, y: number): Point => clampPoint([x / (ref.current.dispW || 1), y / (ref.current.dispH || 1)]);
+  type Touch = { pageX: number; pageY: number };
+  const local = (t: Touch): [number, number] => [t.pageX - origin.current[0], t.pageY - origin.current[1]];
+  const at = (t: Touch): Point => clampPoint(touchToPhoto(...local(t), ref.current.view, ref.current.base, ref.current.area));
+  const startPinch = (a: Touch, b: Touch) => {
+    ref.current.live = null;
+    setLive(null);
+    ref.current.pinch = { start: ref.current.view, mid: midpoint(local(a), local(b)), dist: distance(local(a), local(b)) };
+  };
   const commit = (shape: MarkupShape) => {
     const problem = shapeProblem(shape);
     if (problem) return Alert.alert("Can't add that", problem);
@@ -163,13 +173,17 @@ export default function Draw() {
   };
 
   const pan = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => ref.current.tool !== "move" && !ref.current.busy && !!ref.current.items,
-    onMoveShouldSetPanResponder: () => ref.current.tool !== "move" && !ref.current.busy && !!ref.current.items,
+    onStartShouldSetPanResponder: () => !!ref.current.items,
+    onMoveShouldSetPanResponder: () => !!ref.current.items,
     onPanResponderTerminationRequest: () => false,
     onPanResponderGrant: (e) => {
+      const touches = e.nativeEvent.touches;
+      ref.current.pinch = null;
+      if (touches.length >= 2) return startPinch(touches[0]!, touches[1]!);
+      if (ref.current.busy) return;
       const { tool: t, color: c, size: sz, text: tx, items: list } = ref.current;
       if (ref.current.noteFor) setNoteFor(null); // drawing again means "no note" for the last one
-      const p = at(e.nativeEvent.locationX, e.nativeEvent.locationY);
+      const p = at(e.nativeEvent);
       if (t === "erase") {
         if (!list) return;
         const i = hitTest(list, p[0] * ref.current.dispW, p[1] * ref.current.dispH, ref.current.dispW, ref.current.dispH, 24);
@@ -185,26 +199,38 @@ export default function Draw() {
         if (t === "text") setText("");
         return;
       }
-      if (t === "move") return;
       const shape: MarkupShape = { kind: t, color: c, size: sz, points: [p, p] };
       ref.current.live = shape;
       setLive(shape);
     },
     onPanResponderMove: (e) => {
+      const touches = e.nativeEvent.touches;
+      if (touches.length >= 2) {
+        // A second finger came down: it's a pinch, not a drawing.
+        if (!ref.current.pinch) return startPinch(touches[0]!, touches[1]!);
+        const a = local(touches[0]!);
+        const b = local(touches[1]!);
+        const v = pinchTo(ref.current.pinch, midpoint(a, b), distance(a, b), ref.current.base, ref.current.area);
+        ref.current.view = v;
+        setView(v);
+        return;
+      }
       const l = ref.current.live;
-      if (!l) return;
-      const p = at(e.nativeEvent.locationX, e.nativeEvent.locationY);
+      if (!l || ref.current.pinch) return;
+      const p = at(e.nativeEvent);
       const next: MarkupShape = l.kind === "pen" ? { ...l, points: [...l.points, p] } : { ...l, points: [l.points[0]!, p] };
       ref.current.live = next;
       setLive(next);
     },
     onPanResponderRelease: () => {
+      ref.current.pinch = null;
       const l = ref.current.live;
       ref.current.live = null;
       setLive(null);
       if (l) commit(l.kind === "pen" ? { ...l, points: thinPen(l.points, ref.current.dispW, ref.current.dispH) } : l);
     },
     onPanResponderTerminate: () => {
+      ref.current.pinch = null;
       ref.current.live = null;
       setLive(null);
     },
@@ -220,23 +246,27 @@ export default function Draw() {
       {!items ? (
         <Text style={{ color: "#fff", padding: 16 }}>{offline ? "No signal, and this photo's drawings haven't been saved on this phone yet. Open the photo once with signal, then try again." : "Loading the drawing…"}</Text>
       ) : null}
-      <View style={{ flex: 1 }} onLayout={(e) => {
-        const { width: lw, height: lh } = e.nativeEvent.layout;
-        if (lw > 0 && lh > 0 && (Math.abs(lw - area.w) > 1 || Math.abs(lh - area.h) > 1)) setArea({ w: lw, h: lh });
-      }}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{ minWidth: area.w, minHeight: area.h, alignItems: "center", justifyContent: "center" }}
-        horizontal={false}
-        scrollEnabled={tool === "move"}
-      >
-        <ScrollView horizontal scrollEnabled={tool === "move"} contentContainerStyle={{ minWidth: area.w, alignItems: "center", justifyContent: "center" }}>
-          <View style={{ width: dispW, height: dispH }} {...pan.panHandlers} accessibilityLabel="Photo drawing area">
-            <ServerImage photoId={photoId} style={{ width: dispW, height: dispH }} contain />
-            <MarksLayer marks={items ?? []} w={W} h={H} width={dispW} height={dispH} preview={live} highlight={noteFor ? (items ?? []).findIndex((m) => m.key === noteFor.key) : undefined} />
-          </View>
-        </ScrollView>
-      </ScrollView>
+      <View ref={areaRef} style={{ flex: 1, overflow: "hidden" }} {...pan.panHandlers} accessibilityLabel="Photo drawing area. One finger draws, pinch with two fingers to zoom."
+        onLayout={(e) => {
+          const { width: lw, height: lh } = e.nativeEvent.layout;
+          areaRef.current?.measureInWindow((x, y) => { origin.current = [x, y]; });
+          if (lw > 0 && lh > 0 && (Math.abs(lw - area.w) > 1 || Math.abs(lh - area.h) > 1)) {
+            const next = { w: lw, h: lh };
+            setArea(next);
+            const nb = fitRect(lw, lh, W, H);
+            setView((v) => clampView(v, { w: nb.w, h: nb.h }, next));
+          }
+        }}>
+        <View pointerEvents="none" style={{ position: "absolute", left: rect.left, top: rect.top, width: dispW, height: dispH }}>
+          <ServerImage photoId={photoId} style={{ width: dispW, height: dispH }} contain />
+          <MarksLayer marks={items ?? []} w={W} h={H} width={dispW} height={dispH} preview={live} highlight={noteFor ? (items ?? []).findIndex((m) => m.key === noteFor.key) : undefined} />
+        </View>
+        {view.zoom > 1.05 ? (
+          <Pressable onPress={() => setView({ zoom: 1, x: 0, y: 0 })} accessibilityRole="button" accessibilityLabel="Show the whole photo"
+            style={{ position: "absolute", right: 10, top: 10, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 }}>
+            <Text style={{ color: "#fff", fontSize: 13 }}>{view.zoom.toFixed(1)}× · Fit</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       <ScrollView style={{ backgroundColor: C.bg, flexGrow: 0, flexShrink: 0, maxHeight: height * 0.5 }} contentContainerStyle={{ padding: 10, gap: 8 }} keyboardShouldPersistTaps="handled">
@@ -281,7 +311,6 @@ export default function Draw() {
         ) : null}
         <View style={{ flexDirection: "row", gap: 8 }}>
           <Button title="↶ Undo" kind="secondary" style={{ flex: 1 }} disabled={!lastMine || busy} onPress={() => { if (lastMine) void removeMark(lastMine); }} />
-          <Button title={`Zoom ${zoom}×`} kind="secondary" style={{ flex: 1 }} onPress={() => { setZoom(ZOOMS[(ZOOMS.indexOf(zoom) + 1) % ZOOMS.length]!); if (zoom === 1) setTool("move"); }} />
           <Button title="Done" busy={busy} style={{ flex: 1 }} onPress={() => router.back()} />
         </View>
         {waiting ? <Text style={s.muted}>{waiting} drawing{waiting === 1 ? "" : "s"} saved on this phone, sent when you have signal.</Text> : null}
