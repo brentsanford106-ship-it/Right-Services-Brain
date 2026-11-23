@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
   CreateInviteRequest,
+  INVITE_VALID_DAYS,
   CreateRoleRequest,
   InviteParams,
   SetMemberStatusRequest,
@@ -329,13 +330,14 @@ export async function teamRoutes(app: FastifyInstance, { db, config }: RouteDeps
     const { orgId } = parse(OrgParams, req.params);
     return inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("members.manage", "roles.manage");
-      const { rows } = await tx.query<{ id: string; email: string; display_name: string; job_title: string | null; roles: { id: string; name: string }[] | null; invited_by: string; created_at: Date }>(
+      const { rows } = await tx.query<{ id: string; email: string; display_name: string; job_title: string | null; roles: { id: string; name: string }[] | null; invited_by: string; created_at: Date; expires_at: Date; expired: boolean }>(
         `SELECT i.id, i.email, i.display_name, i.job_title, COALESCE(iu.display_name, 'Company setup') AS invited_by, i.created_at,
+                i.expires_at, (i.expires_at <= now()) AS expired,
                 (SELECT json_agg(json_build_object('id', r.id, 'name', r.name) ORDER BY r.name) FROM roles r WHERE r.id = ANY (i.role_ids)) AS roles
            FROM member_invites i
            LEFT JOIN organization_memberships im ON im.organization_id = i.organization_id AND im.id = i.invited_by_membership_id
            LEFT JOIN users iu ON iu.id = im.user_id
-          WHERE i.accepted_at IS NULL AND i.revoked_at IS NULL
+          WHERE i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.declined_at IS NULL
           ORDER BY i.created_at DESC`,
       );
       const items: TeamInvite[] = rows.map((r) => ({
@@ -346,6 +348,8 @@ export async function teamRoutes(app: FastifyInstance, { db, config }: RouteDeps
         roles: r.roles ?? [],
         invitedBy: r.invited_by,
         createdAt: r.created_at.toISOString(),
+        expiresAt: r.expires_at.toISOString(),
+        expired: r.expired,
       }));
       return { items };
     });
@@ -366,17 +370,22 @@ export async function teamRoutes(app: FastifyInstance, { db, config }: RouteDeps
         [ctx.orgId, body.email],
       );
       if (existing.some((e) => e.status !== "removed")) throw new HttpError("conflict", "Someone with that email is already in the company.");
-      const { rows: open } = await tx.query("SELECT 1 FROM member_invites WHERE email = $1::citext AND accepted_at IS NULL AND revoked_at IS NULL", [body.email]);
-      if (open.length) throw new HttpError("conflict", "That email has already been added and is waiting for its first sign-in.");
-      const { rows } = await tx.query<{ id: string; created_at: Date }>(
-        `INSERT INTO member_invites (organization_id, email, display_name, job_title, role_ids, invited_by_membership_id)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
-        [ctx.orgId, body.email, body.displayName, body.jobTitle ?? null, roleIds, ctx.membershipId],
+      // An expired invite for the same email is replaced by the new one.
+      await tx.query(
+        "UPDATE member_invites SET revoked_at = now() WHERE email = $1::citext AND accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL AND expires_at <= now()",
+        [body.email],
+      );
+      const { rows: open } = await tx.query("SELECT 1 FROM member_invites WHERE email = $1::citext AND accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL", [body.email]);
+      if (open.length) throw new HttpError("conflict", "That email has already been added and is waiting for the person to accept.");
+      const { rows } = await tx.query<{ id: string; created_at: Date; expires_at: Date }>(
+        `INSERT INTO member_invites (organization_id, email, display_name, job_title, role_ids, invited_by_membership_id, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(days => $7)) RETURNING id, created_at, expires_at`,
+        [ctx.orgId, body.email, body.displayName, body.jobTitle ?? null, roleIds, ctx.membershipId, INVITE_VALID_DAYS],
       );
       const id = rows[0]!.id;
       // The email address itself is deliberately not copied into the audit log.
       await recordAudit(tx, ctx, "member.invited", "member_invite", id, { roleIds });
-      return { id, createdAt: rows[0]!.created_at.toISOString() };
+      return { id, createdAt: rows[0]!.created_at.toISOString(), expiresAt: rows[0]!.expires_at.toISOString() };
     });
     return reply.status(201).send(invite);
   });
@@ -386,17 +395,37 @@ export async function teamRoutes(app: FastifyInstance, { db, config }: RouteDeps
     await inOrg(db, req, orgId, async (tx, ctx) => {
       ctx.require("members.manage");
       const { rows: inv } = await tx.query<{ role_ids: string[] }>(
-        "SELECT role_ids FROM member_invites WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL FOR UPDATE",
+        "SELECT role_ids FROM member_invites WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL FOR UPDATE",
         [inviteId],
       );
       if (!inv[0]) throw notFound();
       // Same rule as suspending or removing someone: you can't cancel the invite of someone stronger than you.
       mustHoldAll(ctx, await permissionsOfRoles(tx, inv[0].role_ids));
-      const { rowCount } = await tx.query("UPDATE member_invites SET revoked_at = now() WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL", [inviteId]);
+      const { rowCount } = await tx.query("UPDATE member_invites SET revoked_at = now() WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL", [inviteId]);
       if (rowCount !== 1) throw notFound();
       await recordAudit(tx, ctx, "member.invite_revoked", "member_invite", inviteId);
     });
     return reply.status(204).send();
+  });
+
+  // Renew: the invite works for another INVITE_VALID_DAYS days from now (for example after it expired).
+  app.post("/v1/orgs/:orgId/team/invites/:inviteId/renew", async (req) => {
+    const { orgId, inviteId } = parse(InviteParams, req.params);
+    return inOrg(db, req, orgId, async (tx, ctx) => {
+      ctx.require("members.manage");
+      const { rows: inv } = await tx.query<{ role_ids: string[] }>(
+        "SELECT role_ids FROM member_invites WHERE id = $1 AND accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL FOR UPDATE",
+        [inviteId],
+      );
+      if (!inv[0]) throw notFound();
+      mustHoldAll(ctx, await permissionsOfRoles(tx, inv[0].role_ids));
+      const { rows } = await tx.query<{ expires_at: Date }>(
+        "UPDATE member_invites SET expires_at = now() + make_interval(days => $2) WHERE id = $1 RETURNING expires_at",
+        [inviteId, INVITE_VALID_DAYS],
+      );
+      await recordAudit(tx, ctx, "member.invite_renewed", "member_invite", inviteId);
+      return { id: inviteId, expiresAt: rows[0]!.expires_at.toISOString(), expired: false };
+    });
   });
 
   app.patch("/v1/orgs/:orgId/team/members/:membershipId/status", async (req) => {

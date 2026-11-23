@@ -87,6 +87,21 @@ async function putBytes(url: string, headers: Record<string, string>, bytes: Uin
   }
 }
 
+export interface PendingInvite {
+  inviteId: string;
+  organizationId: string;
+  organizationName: string;
+  roles: string[];
+  invitedBy: string;
+  expiresAt: string;
+}
+export interface SignInResult {
+  orgs: { organizationId: string; organizationName: string }[];
+  /** Companies that added this person; they join only by pressing Accept. */
+  invites: PendingInvite[];
+}
+type MeBody = { user?: { displayName?: string }; memberships: { organizationId: string; organizationName: string }[]; invites?: PendingInvite[] };
+
 interface Ctx {
   ready: boolean;
   /** The vault key or files could not be read. Shown as a blocking error; nothing is deleted automatically. */
@@ -98,9 +113,11 @@ interface Ctx {
   queue: PhotoQueue;
   engine: SyncEngine;
   online: boolean;
-  signIn(subject: string, displayName: string): Promise<{ orgs: { organizationId: string; organizationName: string }[] }>;
+  signIn(subject: string, displayName: string): Promise<SignInResult>;
   /** Real sign-in with Microsoft. Returns null if the person closed the sign-in page. */
-  signInReal(): Promise<{ orgs: { organizationId: string; organizationName: string }[] } | null>;
+  signInReal(): Promise<SignInResult | null>;
+  /** Accept or decline a company's invite (after signing in, before choosing a company). Returns the updated lists. */
+  respondToInvite(inviteId: string, accept: boolean): Promise<SignInResult>;
   /** Set when real sign-in has expired; the person must sign in again. Unsent photos are kept. */
   notice: string | null;
   chooseOrg(orgId: string, orgName: string): Promise<void>;
@@ -205,16 +222,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return await issueDevToken(subject);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
-        // The account was disabled or removed: treat as revoked.
-        await revokeRef.current?.();
+        // The account was disabled or removed: lock this phone out, keeping photos that haven't been sent.
+        await lockOutRef.current?.();
         return null;
       }
       throw e;
     }
   }, [issueDevToken]);
 
-  const revokeRef = useRef<(() => Promise<void>) | null>(null);
   const expireRef = useRef<((message?: string) => Promise<void>) | null>(null);
+  const lockOutRef = useRef<(() => Promise<void>) | null>(null);
 
   if (!holder.current) {
     // Created synchronously so screens always have objects to use; the vault is opened in the effect below.
@@ -310,7 +327,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await h.queue.load();
     force((n) => n + 1);
   }, [rebuild]);
-  revokeRef.current = wipeAll;
 
   // Real sign-in ran out (for example after a long time without opening the app). Unlike signing out or
   // being removed, the person's unsent photos stay encrypted on the phone and upload after they sign in again.
@@ -324,6 +340,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setNotice(message ?? "Your sign-in has expired. Please sign in again. Photos not yet sent are still on this phone.");
   }, []);
   expireRef.current = expire;
+
+  // Suspended or removed from the company (JB's decision 2026-11-23: never delete photos that haven't been sent).
+  // Photos not yet sent stay on the phone, still encrypted, and upload if this person's access is turned back on and
+  // they sign in again. Everything else from the company (saved lists, photos shown from the server) is removed now.
+  // With nothing waiting to upload, it's a normal full sign-out.
+  const lockOut = useCallback(async () => {
+    const h = holder.current;
+    const unsent = h?.queue.pending().length ?? 0;
+    if (!h || unsent === 0) {
+      await wipeAll();
+      setNotice("Your access to this company was turned off. Ask an owner if this is a mistake.");
+      return;
+    }
+    await entra.forget().catch(() => undefined);
+    for (const name of await h.vault.list()) {
+      if (name.startsWith("c-")) await h.vault.remove(name).catch(() => undefined); // saved company lists
+    }
+    await Image.clearMemoryCache().catch(() => false);
+    await Image.clearDiskCache().catch(() => false);
+    clearScratch();
+    await SecureStore.deleteItemAsync(SESSION_KEY, OPTS);
+    token.current = null;
+    sessionRef.current = null;
+    pendingSubject.current = null;
+    setSession(null);
+    setNotice(
+      `Your access to this company was turned off. ${unsent} photo${unsent === 1 ? " that hasn't" : "s that haven't"} been sent ${unsent === 1 ? "is" : "are"} kept locked on this phone. ` +
+        "If an owner turns your access back on, sign in again and they will upload.",
+    );
+  }, [wipeAll]);
+  lockOutRef.current = lockOut;
 
   const value = useMemo<Ctx>(() => {
     const h = holder.current!;
@@ -354,8 +401,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         pendingSubject.current = { subject, displayName, mode: "dev" };
         token.current = null;
         await issueDevToken(subject);
-        const me = await holder.current!.api.get<{ memberships: { organizationId: string; organizationName: string }[] }>("/v1/me");
-        return { orgs: me.memberships };
+        const me = await holder.current!.api.get<MeBody>("/v1/me");
+        return { orgs: me.memberships, invites: me.invites ?? [] };
       },
       notice,
       async signInReal() {
@@ -372,9 +419,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         token.current = { value: r.accessToken, expiresAt: r.expiresAt, subject };
         setNotice(null);
         try {
-          const me = await holder.current!.api.get<{ user?: { displayName?: string }; memberships: { organizationId: string; organizationName: string }[] }>("/v1/me");
+          const me = await holder.current!.api.get<MeBody>("/v1/me");
           if (me.user?.displayName) pendingSubject.current.displayName = me.user.displayName;
-          return { orgs: me.memberships };
+          return { orgs: me.memberships, invites: me.invites ?? [] };
         } catch (e) {
           // Not added to a company (401): don't keep their Microsoft sign-in on this phone.
           if (e instanceof ApiError && e.status === 401) {
@@ -384,6 +431,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
           throw e;
         }
+      },
+      async respondToInvite(inviteId: string, accept: boolean) {
+        await holder.current!.api.post(`/v1/invites/${inviteId}/${accept ? "accept" : "decline"}`, {});
+        const me = await holder.current!.api.get<MeBody>("/v1/me");
+        return { orgs: me.memberships, invites: me.invites ?? [] };
       },
       async chooseOrg(orgId: string, orgName: string) {
         const cur = sessionRef.current;
@@ -429,7 +481,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           // Only our own server's "not found" counts (it always carries a request id); a 404 page from Wi-Fi or Azure
           // in between must never wipe unsent photos.
           if (e instanceof ApiError && e.status === 404 && e.code === "not_found" && !!e.requestId && sessionRef.current) {
-            await revokeRef.current?.();
+            await lockOutRef.current?.();
             return;
           }
           // Offline: keep what we have. The server still checks every action.

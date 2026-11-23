@@ -76,7 +76,9 @@ A third review pass (security and reliability) found and fixed these, each with 
 - The rate limit now uses the caller's real address in Azure; a made-up `X-Forwarded-For` header can't get around it. Production allows 1,200 requests a minute per address (the website loads each thumbnail separately, and a crew may share one hotspot).
 - The phone treats a Wi-Fi sign-in page, Azure's error page or a non-API 404 as "no connection" and retries, instead of marking photos "needs attention". Such a 404 can no longer make the phone think the person was removed (which wipes the phone). A hanging upload gives up after 10 minutes and retries.
 
-Still open (decisions or later work, not bugs): invites never expire; someone added by email joins at their next sign-in without an "accept" step; when a person is suspended or removed, their phone deletes photos it hasn't uploaded yet; the "sign in again every N days" setting is enforced by the apps, not the server; the database firewall admits any Azure address; dependency warnings are only in test and build tools (Azurite, Expo), not in the server that runs in Azure.
+JB's decisions (2026-11-23), now built: invites expire after 14 days (owners can renew); a person joins a company only after pressing Accept (or Decline); when a person is suspended or removed, their phone keeps photos it hasn't uploaded yet, encrypted and locked, and uploads them if their access is turned back on and they sign in again.
+
+Still open (later work, not bugs): the "sign in again every N days" setting is enforced by the apps, not the server; the database firewall admits any Azure address; dependency warnings are only in test and build tools (Azurite, Expo), not in the server that runs in Azure.
 
 ## Whose account: Nate's company or yours
 

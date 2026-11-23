@@ -1,18 +1,52 @@
 import type { FastifyInstance } from "fastify";
-import { OrgParams, type MeResponse, type OrgContextResponse, type DashboardResponse } from "@rsb/contracts";
+import { MyInviteParams, OrgParams, type MeResponse, type OrgContextResponse, type DashboardResponse, type PendingInvite } from "@rsb/contracts";
+import { HttpError } from "../lib/errors.js";
+import type { Tx } from "../lib/db.js";
+import type { FastifyRequest } from "fastify";
 import { inOrg, requireUser } from "../lib/context.js";
 import { parse } from "../lib/validate.js";
 import { jobVisibilitySql } from "../lib/access.js";
 import type { RouteDeps } from "./index.js";
 
+/** Live invites for the signed-in person's verified email (none without one). */
+async function pendingInvites(tx: Tx, req: FastifyRequest): Promise<PendingInvite[]> {
+  const id = req.identity;
+  if (!id?.email) return [];
+  const { rows } = await tx.query<{ invite_id: string; organization_id: string; organization_name: string; role_names: string[]; invited_by: string; expires_at: Date }>(
+    "SELECT * FROM app.my_invites($1, $2, $3)",
+    [id.issuer, id.subject, id.email],
+  );
+  return rows.map((r) => ({
+    inviteId: r.invite_id,
+    organizationId: r.organization_id,
+    organizationName: r.organization_name,
+    roles: r.role_names,
+    invitedBy: r.invited_by,
+    expiresAt: r.expires_at.toISOString(),
+  }));
+}
+
 export async function meRoutes(app: FastifyInstance, { db }: RouteDeps): Promise<void> {
+  // Accept or decline an invite. Joining a company always takes the person's own Accept.
+  for (const [action, accept] of [["accept", true], ["decline", false]] as const) {
+    app.post(`/v1/invites/:inviteId/${action}`, async (req) => {
+      requireUser(req);
+      const { inviteId } = parse(MyInviteParams, req.params);
+      const id = req.identity!;
+      const { rows } = await db.anonymous((tx) =>
+        tx.query<{ outcome: string }>("SELECT app.respond_to_invite($1, $2, $3, $4, $5) AS outcome", [id.issuer, id.subject, id.email ?? null, inviteId, accept]),
+      );
+      const outcome = rows[0]?.outcome;
+      if (outcome !== "accepted" && outcome !== "declined") {
+        throw new HttpError("not_found", "This invite is no longer available. It may have expired or been cancelled. Ask the owner to add you again.");
+      }
+      return { inviteId, outcome };
+    });
+  }
+
   app.get("/v1/me", async (req): Promise<MeResponse> => {
     const userId = requireUser(req);
-    // Already-registered people may have been added to another company since: accept those invites too.
-    if (req.identity?.email) {
-      const id = req.identity;
-      await db.anonymous((tx) => tx.query("SELECT app.claim_invites($1, $2, $3, $4)", [id.issuer, id.subject, id.email, id.name ?? null]));
-    }
+    const invites = await db.anonymous((tx) => pendingInvites(tx, req));
     return db.asUser(userId, async (tx) => {
       const { rows: u } = await tx.query<{ id: string; display_name: string; email: string }>(
         "SELECT id, display_name, email FROM users WHERE id = $1",
@@ -29,6 +63,7 @@ export async function meRoutes(app: FastifyInstance, { db }: RouteDeps): Promise
       return {
         user: { id: user.id, displayName: user.display_name, email: user.email },
         memberships: m.map((r) => ({ organizationId: r.organization_id, organizationName: r.name, membershipId: r.membership_id })),
+        invites,
       };
     });
   });

@@ -24,7 +24,7 @@ beforeAll(async () => {
 afterAll(async () => {
   const admin = await adminClient();
   try {
-    await admin.query("UPDATE member_invites SET revoked_at = now() WHERE accepted_at IS NULL AND revoked_at IS NULL");
+    await admin.query("UPDATE member_invites SET revoked_at = now() WHERE accepted_at IS NULL AND revoked_at IS NULL AND declined_at IS NULL");
   } finally {
     await admin.end();
   }
@@ -58,6 +58,10 @@ describe("setting up a real company", () => {
     }
 
     const one = signIn("one", "owner.one@example.com");
+    const first = JSON.parse((await t.app.inject({ method: "GET", url: "/v1/me", headers: { authorization: `Bearer ${one}` } })).body);
+    expect(first.memberships).toEqual([]);
+    expect(first.invites.map((i: { organizationName: string }) => i.organizationName)).toEqual(["Test Setup Co"]);
+    expect((await t.app.inject({ method: "POST", url: `/v1/invites/${first.invites[0].inviteId}/accept`, headers: { authorization: `Bearer ${one}` } })).statusCode).toBe(200);
     const me = await t.app.inject({ method: "GET", url: "/v1/me", headers: { authorization: `Bearer ${one}` } });
     expect(JSON.parse(me.body).memberships.map((m: { organizationId: string }) => m.organizationId)).toEqual([orgId]);
     const ctx = await t.app.inject({ method: "GET", url: `/v1/orgs/${orgId}`, headers: { authorization: `Bearer ${one}` } });

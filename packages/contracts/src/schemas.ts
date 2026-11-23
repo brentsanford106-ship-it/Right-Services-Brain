@@ -52,9 +52,21 @@ export const MembershipSummary = z.object({
   organizationName: z.string(),
   membershipId: Uuid,
 });
+/** A company that added this person by email. They join only when they press Accept. */
+export const PendingInvite = z.object({
+  inviteId: Uuid,
+  organizationId: Uuid,
+  organizationName: z.string(),
+  roles: z.array(z.string()),
+  invitedBy: z.string(),
+  expiresAt: z.string(),
+});
+export type PendingInvite = z.infer<typeof PendingInvite>;
 export const MeResponse = z.object({
   user: z.object({ id: Uuid, displayName: z.string(), email: z.string() }),
   memberships: z.array(MembershipSummary),
+  /** Invites waiting for Accept or Decline. */
+  invites: z.array(PendingInvite),
 });
 export type MeResponse = z.infer<typeof MeResponse>;
 
@@ -345,6 +357,9 @@ export const SetMemberRolesRequest = z.strictObject({ roleIds: z.array(Uuid).min
 export type SetMemberRolesRequest = z.infer<typeof SetMemberRolesRequest>;
 
 export const InviteParams = z.strictObject({ orgId: Uuid, inviteId: Uuid });
+export const MyInviteParams = z.strictObject({ inviteId: Uuid });
+/** Days an invite stays usable (it can be renewed by the owner). */
+export const INVITE_VALID_DAYS = 14;
 export const CreateInviteRequest = z.strictObject({
   email: z.string().trim().toLowerCase().pipe(z.email("Enter a valid email address.").max(320)),
   displayName: z.string().trim().min(1).max(200),
@@ -360,6 +375,9 @@ export const TeamInvite = z.object({
   roles: z.array(z.object({ id: Uuid, name: z.string() })),
   invitedBy: z.string(),
   createdAt: z.string(),
+  /** After this, the person can no longer accept it; an owner can renew it. */
+  expiresAt: z.string(),
+  expired: z.boolean(),
 });
 export type TeamInvite = z.infer<typeof TeamInvite>;
 export const SetMemberStatusRequest = z.strictObject({ status: z.enum(["active", "suspended", "removed"]) });

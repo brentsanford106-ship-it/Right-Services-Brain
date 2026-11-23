@@ -1,3 +1,4 @@
+import { DEV_AUTH_ISSUER } from "@rsb/contracts";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import sharp from "sharp";
 import { setupCompany } from "@rsb/db";
@@ -166,6 +167,7 @@ describe("company walls: the database rules themselves", () => {
           ORDER BY 1`,
       );
       expect(cols.map((r) => r.x)).toEqual([
+        "member_invites.expires_at:UPDATE",
         "member_invites.revoked_at:UPDATE",
         "organization_memberships.job_title:UPDATE",
         "organization_memberships.status:UPDATE",
@@ -187,11 +189,13 @@ describe("company walls: the database rules themselves", () => {
           WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema') ORDER BY 1`,
       );
       expect(rows.map((r) => `${r.name}${r.app ? " (app may call)" : ""}`)).toEqual([
-        "app.claim_invites (app may call)",
+        "app.my_invites (app may call)",
         "app.photos_past_retention (app may call)",
         "app.purge_deleted_photo (app may call)",
+        "app.register_invited_user (app may call)",
         "app.require_an_owner",
         "app.resolve_principal (app may call)",
+        "app.respond_to_invite (app may call)",
       ]);
       for (const r of rows) {
         expect({ fn: r.name, public: r.pub }).toEqual({ fn: r.name, public: false });
@@ -208,7 +212,8 @@ describe("company walls: the database rules themselves", () => {
     try {
       await c.query("BEGIN");
       await c.query("SELECT set_config('app.current_user_id', $1, true), set_config('app.current_org_id', $2, true)", [riley, ORG_B]);
-      const { rows } = await c.query<{ email: string }>("SELECT email FROM users ORDER BY email");
+      // Seeded people only: other test files may have added (and removed) people of their own in company B.
+      const { rows } = await c.query<{ email: string }>("SELECT email FROM users WHERE idp_issuer = $1 ORDER BY email", [DEV_AUTH_ISSUER]);
       const visible = rows.map((r) => r.email);
       expect(visible.some((e) => e.endsWith("@harborpine.example.com"))).toBe(false);
       const expected = F.users.filter((u) => u.memberships.some((m) => m.orgId === ORG_B)).map((u) => u.email).sort();
@@ -240,7 +245,11 @@ describe("company walls: the database rules themselves", () => {
     let uid = "";
     try {
       await c.query("BEGIN");
-      uid = (await c.query<{ id: string }>("SELECT app.claim_invites('https://walls.example.com', $1, $2, 'Slipped') AS id", [uuid(), email])).rows[0]!.id;
+      const sub = uuid();
+      uid = (await c.query<{ id: string }>("SELECT app.register_invited_user('https://walls.example.com', $1, $2, 'Slipped') AS id", [sub, email])).rows[0]!.id;
+      const inv = (await c.query<{ invite_id: string }>("SELECT invite_id FROM app.my_invites('https://walls.example.com', $1, $2)", [sub, email])).rows;
+      expect(inv).toHaveLength(1);
+      expect((await c.query("SELECT app.respond_to_invite('https://walls.example.com', $1, $2, $3, true) AS o", [sub, email, inv[0]!.invite_id])).rows[0].o).toBe("accepted");
       await c.query("COMMIT");
     } finally {
       await c.end();

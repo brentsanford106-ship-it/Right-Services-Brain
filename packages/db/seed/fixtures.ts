@@ -90,6 +90,14 @@ export const users: SeedUser[] = [
       { orgId: ORG_B, membershipId: "00000000-0000-4b00-8000-00000000c0b1", role: "manager", jobTitle: "Site Lead" },
     ],
   },
+  {
+    // Not in any company: for trying "add a person by email" and the Accept step with test people.
+    id: "00000000-0000-4a00-8000-00000000d001",
+    subject: "dev-nia-newcomer",
+    email: "nia.newcomer@example.com",
+    displayName: "Nia Newcomer",
+    memberships: [],
+  },
 ];
 
 export const organizations = [

@@ -98,7 +98,7 @@ export function TeamPage() {
 
       {(canPeople || canManage) && invites.data && invites.data.items.length > 0 && (
         <>
-          <h3>Added, not signed in yet</h3>
+          <h3>Added, waiting for them to accept</h3>
           <ul className="list">
             {invites.data.items.map((i) => (
               <InviteRow key={i.id} invite={i} canWithdraw={canPeople} onChanged={refresh} />
@@ -334,14 +334,26 @@ function InviteRow({ invite, canWithdraw, onChanged }: { invite: TeamInvite; can
     mutationFn: () => api(`/v1/orgs/${orgId}/team/invites/${invite.id}`, { method: "DELETE" }),
     onSuccess: onChanged,
   });
+  const renew = useMutation({
+    mutationFn: () => api(`/v1/orgs/${orgId}/team/invites/${invite.id}/renew`, { method: "POST" }),
+    onSuccess: onChanged,
+  });
+  const until = new Date(invite.expiresAt).toLocaleDateString();
   return (
     <li className="row static">
       <div className="headrow">
         <div>
           <strong>{invite.displayName}</strong>
-          <span className="badge">Not signed in yet</span>
-          <div className="muted small">{invite.email} · {invite.roles.map((r) => r.name).join(", ")}</div>
+          <span className="badge">{invite.expired ? "Expired" : "Waiting to accept"}</span>
+          <div className="muted small">
+            {invite.email} · {invite.roles.map((r) => r.name).join(", ")} · {invite.expired ? `expired ${until}` : `can accept until ${until}`}
+          </div>
         </div>
+        {canWithdraw && (
+          <button disabled={renew.isPending} onClick={() => renew.mutate()} title="Gives them 14 more days from today">
+            Renew
+          </button>
+        )}
         {canWithdraw && (
           <button
             disabled={withdraw.isPending}
@@ -354,6 +366,7 @@ function InviteRow({ invite, canWithdraw, onChanged }: { invite: TeamInvite; can
         )}
       </div>
       {withdraw.error && <p className="error" role="alert">{errText(withdraw.error)}</p>}
+      {renew.error && <p className="error" role="alert">{errText(renew.error)}</p>}
     </li>
   );
 }
