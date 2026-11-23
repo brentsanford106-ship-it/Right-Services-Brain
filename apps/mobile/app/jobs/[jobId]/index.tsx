@@ -272,7 +272,7 @@ export default function JobGallery() {
               <ServerImage photoId={item.server.id} style={{ width: size, height: size, borderRadius: 6 }} thumb />
             ) : (
               <View style={{ width: size, height: size, borderRadius: 6, backgroundColor: C.line, alignItems: "center", justifyContent: "center" }}>
-                <Text style={s.muted}>{item.state === "server_missing_file" ? "File not\nuploaded yet" : "No preview"}</Text>
+                <Text style={s.muted}>No picture</Text>
               </View>
             )}
             {item.flagged ? (
