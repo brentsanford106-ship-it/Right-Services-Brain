@@ -26,6 +26,112 @@ export function applyFilter(items: Photo[], f: Filter): Photo[] {
 
 export const stageLabel = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+// ---------------------------------------------------------------- who took it
+
+/** "John Smith" -> "JS", "Avery" -> "AV". Used where there's no profile picture. */
+export function initials(name: string | null): string {
+  if (!name) return "?";
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
+  return (words[0]![0]! + words[words.length - 1]![0]!).toUpperCase();
+}
+
+/** A stable color per person, so the same person always gets the same circle. */
+const PERSON_COLORS = ["#2563eb", "#16a34a", "#9333ea", "#ea580c", "#0891b2", "#db2777", "#4d7c0f", "#b45309"];
+export function personColor(id: string | null): string {
+  if (!id) return "#6b7280";
+  let h = 0;
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return PERSON_COLORS[h % PERSON_COLORS.length]!;
+}
+
+export const takenByLabel = (p: Photo) => p.photographer ?? "Unknown";
+
+/** "me" = photos I took, "unknown" = photographer not known, otherwise a person's id. Empty = everyone. */
+export type PeopleFilter = ReadonlySet<string>;
+export type Sort = "oldest" | "newest" | "photographer";
+export const SORTS: { value: Sort; label: string }[] = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "photographer", label: "By who took it" },
+];
+
+export function applyPeople(items: Photo[], people: PeopleFilter): Photo[] {
+  if (people.size === 0) return items;
+  return items.filter(
+    (p) => (people.has("me") && p.takenByMe) || (p.photographerId ? people.has(p.photographerId) : people.has("unknown")),
+  );
+}
+
+export function sortPhotos(items: Photo[], sort: Sort): Photo[] {
+  const byTime = (a: Photo, b: Photo) => a.capturedAt.localeCompare(b.capturedAt);
+  const out = [...items];
+  if (sort === "oldest") out.sort(byTime);
+  else if (sort === "newest") out.sort((a, b) => byTime(b, a));
+  // Unknown photographers last; within one person, oldest first.
+  else out.sort((a, b) => (a.photographer === null ? 1 : 0) - (b.photographer === null ? 1 : 0) || (a.photographer ?? "").localeCompare(b.photographer ?? "") || byTime(a, b));
+  return out;
+}
+
+/** Everyone who took at least one of these photos, with how many, A to Z. */
+export function peopleIn(items: Photo[]): { id: string; name: string; count: number }[] {
+  const m = new Map<string, { id: string; name: string; count: number }>();
+  for (const p of items) {
+    const id = p.photographerId ?? "unknown";
+    const e = m.get(id) ?? { id, name: p.photographer ?? "Unknown", count: 0 };
+    e.count++;
+    m.set(id, e);
+  }
+  return [...m.values()].sort((a, b) => (a.id === "unknown" ? 1 : 0) - (b.id === "unknown" ? 1 : 0) || a.name.localeCompare(b.name));
+}
+
+/** Small colored circle with someone's initials. */
+export function PersonBadge({ id, name, className }: { id: string | null; name: string | null; className?: string }) {
+  return (
+    <span className={`person ${className ?? ""}`} style={{ background: personColor(id) }} title={name ? `Taken by ${name}` : "Who took this is unknown"} aria-hidden>
+      {initials(name)}
+    </span>
+  );
+}
+
+/** "People" picker (who took the photos) and the sort order. Works with the stage/flag chips. */
+export function PeopleAndSort({ items, people, onPeople, sort, onSort }: { items: Photo[]; people: PeopleFilter; onPeople: (p: PeopleFilter) => void; sort: Sort; onSort: (s: Sort) => void }) {
+  const list = peopleIn(items);
+  const mine = items.filter((p) => p.takenByMe).length;
+  const toggle = (id: string) => {
+    const next = new Set(people);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    onPeople(next);
+  };
+  const summary = people.size === 0 ? "Everyone" : people.size === 1 && people.has("me") ? "Photos I took" : `${people.size} selected`;
+  return (
+    <div className="viewbar">
+      <details className="people">
+        <summary aria-label={`Taken by: ${summary}`}>Taken by: <strong>{summary}</strong></summary>
+        <div className="peoplemenu" role="group" aria-label="Show photos taken by">
+          <label><input type="checkbox" checked={people.size === 0} onChange={() => onPeople(new Set())} /> Everyone <span className="count">{items.length}</span></label>
+          <label><input type="checkbox" checked={people.has("me")} onChange={() => toggle("me")} /> Photos I took <span className="count">{mine}</span></label>
+          <hr />
+          {list.map((x) => (
+            <label key={x.id}>
+              <input type="checkbox" checked={people.has(x.id)} onChange={() => toggle(x.id)} />
+              <PersonBadge id={x.id === "unknown" ? null : x.id} name={x.id === "unknown" ? null : x.name} className="sm" /> {x.name} <span className="count">{x.count}</span>
+            </label>
+          ))}
+        </div>
+      </details>
+      <label className="sort">
+        Sort
+        <select value={sort} onChange={(e) => onSort(e.target.value as Sort)}>
+          {SORTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </label>
+    </div>
+  );
+}
+
 /** Upload state as the office sees it. "pending" means the phone recorded it but the file hasn't arrived yet. */
 export function SyncBadge({ p }: { p: Photo }) {
   if (p.uploadStatus === "stored") return <span className="pill ok">Uploaded</span>;
@@ -96,11 +202,12 @@ export function PhotoGrid({ items, onOpen, showJob, selected, onToggle }: { item
           <button
             onClick={() => (selected && onToggle ? onToggle(p.id) : onOpen(i))}
             aria-pressed={selected ? selected.has(p.id) : undefined}
-            aria-label={`${selected ? "Select" : "Open"} ${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}${p.flagged ? ", flagged" : ""}`}
+            aria-label={`${selected ? "Select" : "Open"} ${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}, taken by ${takenByLabel(p)}${p.flagged ? ", flagged" : ""}`}
           >
             {selected && <span className={`pick ${selected.has(p.id) ? "on" : ""}`} aria-hidden>{selected.has(p.id) ? "✓" : ""}</span>}
-            {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content`} alt="" className="thumb" /> : <div className="imgph thumb">{p.uploadStatus === "pending" ? "File not uploaded yet" : "No preview"}</div>}
+            {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content?variant=thumb`} alt="" className="thumb" /> : <div className="imgph thumb">{p.uploadStatus === "pending" ? "File not uploaded yet" : "No preview"}</div>}
             {p.flagged && <span className="flagmark" aria-hidden>⚑</span>}
+            <PersonBadge id={p.photographerId} name={p.photographer} className="onthumb" />
           </button>
           <div className="meta">
             <span>{stageLabel(p.stage)}</span>
@@ -192,8 +299,17 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
         <dl className="facts">
           <dt>Taken</dt>
           <dd>{new Date(p.capturedAt).toLocaleString()}</dd>
-          <dt>By</dt>
-          <dd>{p.uploadedBy}</dd>
+          <dt>Taken by</dt>
+          <dd className="takenby"><PersonBadge id={p.photographerId} name={p.photographer} className="sm" /> {takenByLabel(p)}{p.takenByMe ? " (you)" : ""}</dd>
+          {(p.captureSource !== "in_app_camera" || p.photographer !== p.uploadedBy) && (
+            <>
+              <dt>Uploaded by</dt>
+              <dd>{p.uploadedBy}</dd>
+            </>
+          )}
+          <dt>How</dt>
+          <dd>{p.captureSource === "in_app_camera" ? "Taken in the app's camera" : p.captureSource === "imported" ? "Imported from a photo library" : "Uploaded on the website"}</dd>
+          {p.storedAt && <><dt>Uploaded</dt><dd>{new Date(p.storedAt).toLocaleString()}</dd></>}
           <dt>Status</dt>
           <dd><SyncBadge p={p} /></dd>
           <dt>Location</dt>

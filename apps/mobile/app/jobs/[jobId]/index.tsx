@@ -1,9 +1,9 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { Alert, FlatList, Pressable, RefreshControl, ScrollView, Text, View, useWindowDimensions } from "react-native";
 import { Stack, router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { ApiError, NetworkError } from "@rsb/photo-sync";
+import { ApiError, NetworkError, SORT_LABELS, applyPeople, peopleOf, sortByView, type Sort } from "@rsb/photo-sync";
 import { useApp, useQueueVersion, useSyncStatus, type Job } from "../../../src/state";
-import { applyFilter, mergeGallery, LocalImage, ServerImage, type Filter, type GalleryItem, type ServerPhoto } from "../../../src/photos";
+import { applyFilter, mergeGallery, LocalImage, PersonBadge, ServerImage, type Filter, type GalleryItem, type ServerPhoto } from "../../../src/photos";
 import { confirmDelete, sharePhotos } from "../../../src/photoActions";
 import { C, Chip, DevBanner, Empty, FlagBadge, JOB_STATUSES, StatusPill, SyncPill, s } from "../../../src/ui";
 
@@ -22,6 +22,9 @@ export default function JobGallery() {
   const { jobId, jobNumber, title } = useLocalSearchParams<{ jobId: string; jobNumber?: string; title?: string }>();
   const [server, setServer] = useState<ServerPhoto[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
+  // Who took it: empty = everyone; "me" = Photos I took; otherwise people's ids (several allowed).
+  const [people, setPeople] = useState<Set<string>>(new Set());
+  const [sort, setSort] = useState<Sort>("oldest");
   const [loading, setLoading] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -70,8 +73,21 @@ export default function JobGallery() {
     }, [load]),
   );
 
-  const all = mergeGallery(app.queue, jobId, server, sync.uploadingId);
-  const items = useMemo(() => applyFilter(all, filter), [all, filter]);
+  const all = mergeGallery(app.queue, jobId, server, sync.uploadingId, app.session?.displayName ?? "");
+  const items = useMemo(() => sortByView(applyFilter(applyPeople(all, people), filter), sort), [all, people, filter, sort]);
+  const peopleList = peopleOf(all);
+  const togglePerson = (key: string) =>
+    setPeople((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const chooseSort = () =>
+    Alert.alert("Sort photos", undefined, [
+      ...(Object.keys(SORT_LABELS) as Sort[]).map((k) => ({ text: `${k === sort ? "✓ " : ""}${SORT_LABELS[k]}`, onPress: () => setSort(k) })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
   const waiting = all.filter((i) => i.state === "waiting" || i.state === "uploading").length;
   const attention = all.filter((i) => i.state === "needs_attention").length;
 
@@ -167,11 +183,16 @@ export default function JobGallery() {
             <StatusPill status={job.status} onPress={app.can("jobs.manage") ? changeStatus : undefined} />
           </View>
         ) : null}
-        <Text style={[s.muted, { marginTop: 2 }]}>
-          {all.length} photo{all.length === 1 ? "" : "s"}
-          {waiting ? ` · ${waiting} waiting to upload` : ""}
-          {attention ? ` · ${attention} need attention` : ""}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
+          <Text style={[s.muted, { flexShrink: 1 }]}>
+            {all.length} photo{all.length === 1 ? "" : "s"}
+            {waiting ? ` · ${waiting} waiting to upload` : ""}
+            {attention ? ` · ${attention} need attention` : ""}
+          </Text>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Sort: ${SORT_LABELS[sort]}`} hitSlop={10} onPress={chooseSort}>
+            <Text style={{ color: C.link, fontWeight: "600" }}>{SORT_LABELS[sort]} ▾</Text>
+          </Pressable>
+        </View>
         {note ? <Text style={[s.muted, { marginTop: 6 }]}>{note}</Text> : null}
         {deletedCount ? (
           <Pressable
@@ -190,6 +211,20 @@ export default function JobGallery() {
           <Chip key={f.value} label={f.label} active={filter === f.value} tone={f.value === "flagged" ? "flag" : undefined} onPress={() => setFilter(f.value)} />
         ))}
       </ScrollView>
+      {/* Who took it. Only shown when more than one person (or an unknown photographer) is in this job. */}
+      {peopleList.length > 1 || (peopleList.length === 1 && peopleList[0]!.key !== "me") ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+          <Chip label="Everyone" active={people.size === 0} onPress={() => setPeople(new Set())} />
+          {peopleList.map((p) => (
+            <Chip
+              key={p.key}
+              label={`${p.key === "me" ? "Photos I took" : p.name ?? "Unknown"} (${p.count})`}
+              active={people.has(p.key)}
+              onPress={() => togglePerson(p.key)}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
       <FlatList
         style={{ flex: 1 }}
         key={cols}
@@ -198,18 +233,18 @@ export default function JobGallery() {
         keyExtractor={(i) => i.key}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}
         contentContainerStyle={{ padding: 4, paddingBottom: 120 }}
-        ListEmptyComponent={loading ? undefined : <Empty title={filter === "all" ? "No photos yet" : "No photos match this filter"} body={filter === "all" ? "Tap “Take Photos” to start." : undefined} />}
+        ListEmptyComponent={loading ? undefined : <Empty title={filter === "all" && people.size === 0 ? "No photos yet" : "No photos match this filter"} body={filter === "all" && people.size === 0 ? "Tap “Take Photos” to start." : undefined} />}
         renderItem={({ item }) => (
           <Pressable
             onPress={() => (selecting ? toggle(item.key) : open(item))}
             onLongPress={() => (selecting ? toggle(item.key) : startSelecting(item))}
             style={{ margin: 2, width: size, height: size }}
-            accessibilityLabel={`${item.stage} photo${item.flagged ? ", flagged" : ""}${selecting ? (selected.has(item.key) ? ", selected" : ", not selected") : ""}`}
+            accessibilityLabel={`${item.stage} photo, taken by ${item.personKey === "me" ? "you" : item.personName ?? "unknown"}${item.flagged ? ", flagged" : ""}${selecting ? (selected.has(item.key) ? ", selected" : ", not selected") : ""}`}
           >
             {item.local && !item.local.remoteOnly ? (
               <LocalImage localId={item.local.localId} which="thumbnail" style={{ width: size, height: size, borderRadius: 6 }} />
             ) : item.server?.hasPreview ? (
-              <ServerImage photoId={item.server.id} style={{ width: size, height: size, borderRadius: 6 }} />
+              <ServerImage photoId={item.server.id} style={{ width: size, height: size, borderRadius: 6 }} thumb />
             ) : (
               <View style={{ width: size, height: size, borderRadius: 6, backgroundColor: C.line, alignItems: "center", justifyContent: "center" }}>
                 <Text style={s.muted}>{item.state === "server_missing_file" ? "File not\nuploaded yet" : "No preview"}</Text>
@@ -223,6 +258,11 @@ export default function JobGallery() {
             <View style={{ position: "absolute", bottom: 4, left: 4 }}>
               {item.state !== "server" && item.state !== "server_missing_file" ? <SyncPill state={item.state} compact /> : null}
             </View>
+            {!selecting ? (
+              <View pointerEvents="none" style={{ position: "absolute", bottom: 5, right: 5 }}>
+                <PersonBadge personKey={item.personKey} name={item.personName} />
+              </View>
+            ) : null}
             {item.flagged ? <View pointerEvents="none" style={{ position: "absolute", inset: 0, borderWidth: 3, borderColor: C.flag, borderRadius: 6 }} /> : null}
             {selecting ? (
               <View pointerEvents="none" style={{ position: "absolute", inset: 0, borderRadius: 6, backgroundColor: selected.has(item.key) ? "rgba(255,255,255,0.35)" : "transparent" }}>

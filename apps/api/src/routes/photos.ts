@@ -43,6 +43,9 @@ interface PhotoRow {
   upload_status: Photo["uploadStatus"];
   uploaded_by: string;
   uploaded_by_membership_id: string;
+  photographer_membership_id: string | null;
+  photographer: string | null;
+  capture_source: Photo["captureSource"];
   open_flags: number;
   latitude: number | null;
   longitude: number | null;
@@ -52,13 +55,16 @@ interface PhotoRow {
 }
 
 const PHOTO_SELECT = `SELECT p.id, p.job_id, j.job_number, j.site_name, p.stage, p.caption, p.is_flagged, p.flagged_at, p.captured_at, p.stored_at, p.upload_status,
-                             u.display_name AS uploaded_by, p.uploaded_by_membership_id, p.latitude, p.longitude, p.width_px, p.height_px,
+                             u.display_name AS uploaded_by, p.uploaded_by_membership_id,
+                             p.photographer_membership_id, pu.display_name AS photographer, p.capture_source, p.latitude, p.longitude, p.width_px, p.height_px,
                              (p.preview_storage_key IS NOT NULL) AS has_preview,
                              (SELECT count(*)::int FROM photo_flags f WHERE f.organization_id = p.organization_id AND f.photo_id = p.id AND f.status = 'open') AS open_flags
                         FROM photos p
                         JOIN jobs j ON j.organization_id = p.organization_id AND j.id = p.job_id
                         JOIN organization_memberships m ON m.organization_id = p.organization_id AND m.id = p.uploaded_by_membership_id
-                        JOIN users u ON u.id = m.user_id`;
+                        JOIN users u ON u.id = m.user_id
+                        LEFT JOIN organization_memberships pm ON pm.organization_id = p.organization_id AND pm.id = p.photographer_membership_id
+                        LEFT JOIN users pu ON pu.id = pm.user_id`;
 
 /** Everyone may delete their own photos; photos.delete_any lets owners/managers delete any photo they can see. */
 const mayDelete = (ctx: OrgContext, uploadedBy: string) =>
@@ -77,6 +83,11 @@ const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
   storedAt: r.stored_at?.toISOString() ?? null,
   uploadStatus: r.upload_status,
   uploadedBy: r.uploaded_by,
+  photographerId: r.photographer_membership_id,
+  photographer: r.photographer,
+  takenByMe: r.photographer_membership_id !== null && r.photographer_membership_id === ctx.membershipId,
+  uploadedByMe: r.uploaded_by_membership_id === ctx.membershipId,
+  captureSource: r.capture_source,
   openFlags: r.open_flags,
   latitude: r.latitude,
   longitude: r.longitude,
@@ -85,6 +96,9 @@ const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
   hasPreview: r.has_preview,
   canDelete: mayDelete(ctx, r.uploaded_by_membership_id),
 });
+
+/** The small gallery thumbnail sits next to the preview: org/<org>/photos/<photo>/thumb. */
+export const thumbKeyFor = (previewKey: string) => previewKey.replace(/\/preview$/, "/thumb");
 
 /** Loads a photo the caller is allowed to see (via its job), or throws 404. */
 async function loadVisiblePhoto(tx: Tx, ctx: OrgContext, photoId: string, includeDeleted = false) {
@@ -214,6 +228,7 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
     const processed = await processUpload(bytes, declared);
     const originalKey = photoKey(orgId, photoId) + "/original";
     const previewKey = processed.preview ? photoKey(orgId, photoId) + "/preview" : null;
+    const thumbKey = processed.thumb ? photoKey(orgId, photoId) + "/thumb" : null;
     // Files are written first, then the record is marked stored in one transaction.
     // If the process dies in between, the photo simply stays "pending" and the phone retries.
     // The original is write-once: if a file is already there (an earlier attempt that died before the record was
@@ -226,6 +241,7 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
       }
     }
     if (processed.preview && previewKey) await storage.put(previewKey, processed.preview.data, "image/jpeg");
+    if (processed.thumb && thumbKey) await storage.put(thumbKey, processed.thumb, "image/jpeg");
 
     return inOrg(db, req, orgId, async (tx, ctx) => {
       const { rowCount } = await tx.query(
@@ -267,7 +283,8 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
       if (!key) throw notFound();
       return { key, contentType: variant === "original" ? p.content_type : "image/jpeg" };
     });
-    const data = await storage.get(file.key);
+    // Small gallery thumbnail. Photos uploaded before thumbnails existed fall back to the preview.
+    const data = (variant === "thumb" ? await storage.get(thumbKeyFor(file.key)) : null) ?? (await storage.get(file.key));
     if (!data) throw notFound();
     return reply
       .header("content-type", file.contentType)

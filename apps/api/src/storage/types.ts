@@ -14,7 +14,7 @@ export interface ObjectStorage {
   delete(key: string): Promise<void>;
 }
 
-const KEY = /^org\/[0-9a-f-]{36}\/photos\/[0-9a-f-]{36}(\/(original|preview))?$/;
+const KEY = /^org\/[0-9a-f-]{36}\/photos\/[0-9a-f-]{36}(\/(original|preview|thumb))?$/;
 
 export function photoKey(orgId: string, photoId: string): string {
   // UUIDs are compared case-insensitively by the database; file names always use the lowercase form.

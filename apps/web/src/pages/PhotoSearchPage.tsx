@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { Photo } from "@rsb/contracts";
 import { useOrgId, useOrgQuery } from "../lib/hooks";
 import { Status } from "../components/ui";
-import { applyFilter, FilterBar, Lightbox, PhotoGrid, type Filter } from "../components/photos";
+import { applyFilter, applyPeople, FilterBar, Lightbox, PeopleAndSort, PhotoGrid, sortPhotos, SORTS, type Filter, type PeopleFilter, type Sort } from "../components/photos";
 
 interface Criteria {
   jobNumber: string;
@@ -36,6 +36,8 @@ export function PhotoSearchPage() {
   const [draft, setDraft] = useState<Criteria>(EMPTY);
   const [applied, setApplied] = useState<Criteria>(EMPTY);
   const [filter, setFilter] = useState<Filter>("all");
+  const [people, setPeople] = useState<PeopleFilter>(new Set());
+  const [sort, setSort] = useState<Sort>("newest");
   const [open, setOpen] = useState<number | null>(null);
   const q = useOrgQuery<{ items: Photo[] }>("photos", `/photos?${toQuery(applied)}`);
   const set = (k: keyof Criteria) => (e: React.ChangeEvent<HTMLInputElement>) => setDraft({ ...draft, [k]: e.target.value });
@@ -65,11 +67,13 @@ export function PhotoSearchPage() {
       </form>
       <Status query={q}>
         {(d) => {
-          const shown = applyFilter(d.items, filter);
+          const byPeople = applyPeople(d.items, people);
+          const shown = sortPhotos(applyFilter(byPeople, filter), sort);
           return (
             <>
-              <p className="muted small">{d.items.length} photo{d.items.length === 1 ? "" : "s"} found, newest first{d.items.length === 200 ? " (showing the first 200; narrow the search)" : ""}</p>
-              <FilterBar value={filter} onChange={(f) => { setFilter(f); setOpen(null); }} items={d.items} />
+              <p className="muted small">{d.items.length} photo{d.items.length === 1 ? "" : "s"} found, {SORTS.find((o) => o.value === sort)!.label.toLowerCase()}{d.items.length === 200 ? " (showing the first 200; narrow the search)" : ""}</p>
+              <PeopleAndSort items={d.items} people={people} onPeople={(x) => { setPeople(x); setOpen(null); }} sort={sort} onSort={(x) => { setSort(x); setOpen(null); }} />
+              <FilterBar value={filter} onChange={(f) => { setFilter(f); setOpen(null); }} items={byPeople} />
               <PhotoGrid items={shown} onOpen={setOpen} showJob />
               {open !== null && <Lightbox items={shown} index={open} onIndex={setOpen} onClose={() => setOpen(null)} invalidate={[[orgId]]} />}
             </>

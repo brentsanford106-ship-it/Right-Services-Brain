@@ -97,4 +97,52 @@ describe("web dashboard", () => {
     expect(images.length).toBeGreaterThan(0);
     expect(images.every((c) => c.auth === "Bearer x.y.z")).toBe(true);
   });
+  it("who took it: initials on thumbnails, filter by one or several people or Photos I took, small thumbnails", async () => {
+    session.set("x.y.z");
+    const org = { organization: { id: "o", name: "Demo Co", slug: "demo" }, membershipId: "m", roles: ["manager"], permissions: ["org.read", "jobs.read_all"] };
+    const job = { id: "j1", jobNumber: "HP-1001", title: "Pump island (DEMO)", status: "active", siteName: null, siteAddress: null, customerName: null, scheduledStart: null, scheduledEnd: null, assignees: null };
+    const base = { jobId: "j1", jobNumber: "HP-1001", siteName: null, stage: "during", note: null, flagged: false, flaggedAt: null, uploadStatus: "stored", openFlags: 0, latitude: null, longitude: null, widthPx: 10, heightPx: 10, hasPreview: true, storedAt: null, captureSource: "in_app_camera", uploadedByMe: false, canDelete: false };
+    const by = (id: string, pid: string | null, name: string | null, at: string, mine = false) => ({ ...base, id, capturedAt: at, photographerId: pid, photographer: name, uploadedBy: name ?? "Someone", takenByMe: mine, uploadedByMe: mine });
+    const photos = [
+      by("p1", "john", "John Smith", "2026-11-10T09:00:00Z"),
+      by("p2", "john", "John Smith", "2026-11-10T10:00:00Z"),
+      by("p3", "ann", "Ann Lee", "2026-11-10T11:00:00Z"),
+      by("p4", "me", "Morgan Manager", "2026-11-10T12:00:00Z", true),
+      { ...by("p5", null, null, "2026-11-10T13:00:00Z"), captureSource: "imported" },
+    ];
+    const urls: string[] = [];
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      urls.push(url);
+      if (url.includes("/content")) return new Response(new Blob(["img"]), { status: 200 });
+      if (url.endsWith("/jobs/j1/photos")) return new Response(JSON.stringify({ items: photos }), { status: 200 });
+      if (url.endsWith("/jobs/j1")) return new Response(JSON.stringify(job), { status: 200 });
+      return new Response(JSON.stringify(org), { status: 200 });
+    }));
+    renderApp("/orgs/o/jobs/j1");
+    const tiles = await screen.findAllByRole("button", { name: /Open .* photo/ });
+    expect(tiles.length).toBe(5);
+    expect(screen.getAllByTitle("Taken by John Smith").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("JS").length).toBeGreaterThan(0);
+    expect(screen.getAllByTitle("Who took this is unknown").length).toBeGreaterThan(0);
+    // Grids ask for the small thumbnail.
+    await waitFor(() => expect(urls.some((u) => u.endsWith("/content?variant=thumb"))).toBe(true));
+
+    const shown = () => screen.getAllByRole("button", { name: /Open .* photo/ }).map((b) => b.getAttribute("aria-label")!.replace(/^.*taken by /, "").replace(/,.*$/, ""));
+    fireEvent.click(screen.getByRole("checkbox", { name: /John Smith/ }));
+    expect(shown()).toEqual(["John Smith", "John Smith"]);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Ann Lee/ }));
+    expect(shown().sort()).toEqual(["Ann Lee", "John Smith", "John Smith"]);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Everyone/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /Photos I took/ }));
+    expect(shown()).toEqual(["Morgan Manager"]);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Everyone/ }));
+    // Sort by who took it: unknown last.
+    fireEvent.change(screen.getByRole("combobox", { name: /Sort/ }), { target: { value: "photographer" } });
+    expect(shown()).toEqual(["Ann Lee", "John Smith", "John Smith", "Morgan Manager", "Unknown"]);
+    // The viewer says who took it, and that an imported photo's photographer is unknown.
+    fireEvent.click(screen.getAllByRole("button", { name: /taken by Unknown/ })[0]!);
+    expect(await screen.findByText("Imported from a photo library")).toBeTruthy();
+    expect(screen.getByText("Uploaded by")).toBeTruthy();
+  });
 });

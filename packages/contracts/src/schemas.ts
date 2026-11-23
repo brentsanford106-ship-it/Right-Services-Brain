@@ -150,7 +150,17 @@ export const Photo = z.object({
   flaggedAt: z.string().nullable(),
   capturedAt: z.string(),
   uploadStatus: z.enum(["pending", "stored", "rejected"]),
+  /** Name of the person who uploaded the photo. */
   uploadedBy: z.string(),
+  /** The person who took the photo. null = unknown (e.g. an imported photo). Kept after they leave the company. */
+  photographerId: Uuid.nullable(),
+  photographer: z.string().nullable(),
+  /** True when the person asking took this photo ("Photos I took"). */
+  takenByMe: z.boolean(),
+  /** True when the person asking uploaded this photo (they may edit and delete their own uploads). */
+  uploadedByMe: z.boolean(),
+  /** How the photo got into the app. */
+  captureSource: z.enum(["in_app_camera", "imported", "web_upload"]),
   openFlags: z.number().int(),
   latitude: z.number().nullable(),
   longitude: z.number().nullable(),
@@ -206,7 +216,7 @@ export const PHOTO_MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
  * (Authorization header required on every download). There are no bearer
  * URLs: a copied link without the caller's token returns 401.
  */
-export const PhotoContentQuery = z.strictObject({ variant: z.enum(["preview", "original"]).default("preview") });
+export const PhotoContentQuery = z.strictObject({ variant: z.enum(["thumb", "preview", "original"]).default("preview") });
 
 /** Search/recall photos. All filters are optional and combine with AND. */
 export const PhotoSearchQuery = z

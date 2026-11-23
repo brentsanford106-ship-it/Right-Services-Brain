@@ -6,6 +6,7 @@ sharp.cache(false);
 
 const MAX_PIXELS = 50_000_000; // decompression-bomb guard
 const PREVIEW_EDGE = 2048;
+const THUMB_EDGE = 480;
 
 export type ImageType = "image/jpeg" | "image/png" | "image/heic";
 
@@ -13,6 +14,8 @@ export interface ProcessedUpload {
   originalSha256: string;
   /** Re-encoded, metadata-free JPEG for everyday viewing. null if the format can't be decoded here (e.g. HEIC). */
   preview: { data: Buffer; width: number; height: number } | null;
+  /** Small JPEG for gallery grids (made from the preview, so also metadata-free). null when there is no preview. */
+  thumb: Buffer | null;
 }
 
 /** Detects the real file type from its first bytes. The declared type and file name are never trusted. */
@@ -43,7 +46,7 @@ export async function processUpload(buf: Buffer, declaredType: string): Promise<
   const originalSha256 = sha256(buf);
   if (actual === "image/heic") {
     // HEIC decoding isn't available in the server image library; the original is kept and a preview is created in a later phase.
-    return { originalSha256, preview: null };
+    return { originalSha256, preview: null, thumb: null };
   }
   try {
     const out = await sharp(buf, { limitInputPixels: MAX_PIXELS, failOn: "error", animated: false })
@@ -51,7 +54,11 @@ export async function processUpload(buf: Buffer, declaredType: string): Promise<
       .resize({ width: PREVIEW_EDGE, height: PREVIEW_EDGE, fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 82 })
       .toBuffer({ resolveWithObject: true });
-    return { originalSha256, preview: { data: out.data, width: out.info.width, height: out.info.height } };
+    const thumb = await sharp(out.data, { failOn: "error" })
+      .resize({ width: THUMB_EDGE, height: THUMB_EDGE, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 75 })
+      .toBuffer();
+    return { originalSha256, preview: { data: out.data, width: out.info.width, height: out.info.height }, thumb };
   } catch {
     throw new HttpError("validation_failed", "The image could not be read.");
   }

@@ -6,7 +6,7 @@ import { api, ApiRequestError } from "../lib/api";
 import { useCan, useOrgId, useOrgQuery } from "../lib/hooks";
 import { pretty, Status } from "../components/ui";
 import { JobForm, type JobFormValues } from "../components/JobForm";
-import { applyFilter, downloadPhotos, FilterBar, Lightbox, PhotoGrid, type Filter } from "../components/photos";
+import { applyFilter, applyPeople, downloadPhotos, FilterBar, Lightbox, PeopleAndSort, PhotoGrid, sortPhotos, SORTS, type Filter, type PeopleFilter, type Sort } from "../components/photos";
 
 export function JobDetailPage() {
   const { jobId = "" } = useParams();
@@ -17,6 +17,8 @@ export function JobDetailPage() {
   const canManage = useCan("jobs.manage");
   const [editing, setEditing] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
+  const [people, setPeople] = useState<PeopleFilter>(new Set());
+  const [sort, setSort] = useState<Sort>("oldest");
   const [open, setOpen] = useState<number | null>(null);
   // Select mode, like the iPhone Photos app.
   const [selected, setSelected] = useState<Set<string> | null>(null);
@@ -77,16 +79,18 @@ export function JobDetailPage() {
           <h2>Photos</h2>
           <Status query={photos}>
             {(d) => {
-              const shown = applyFilter(d.items, filter);
+              const byPeople = applyPeople(d.items, people);
+              const shown = sortPhotos(applyFilter(byPeople, filter), sort);
               const pending = d.items.filter((p) => p.uploadStatus === "pending").length;
               return (
                 <>
                   <p className="muted small">
-                    {d.items.length} photo{d.items.length === 1 ? "" : "s"}, oldest first
+                    {d.items.length} photo{d.items.length === 1 ? "" : "s"}, {SORTS.find((o) => o.value === sort)!.label.toLowerCase()}
                     {pending ? ` · ${pending} still uploading from a phone` : ""}
                   </p>
+                  <PeopleAndSort items={d.items} people={people} onPeople={(x) => { setPeople(x); setOpen(null); }} sort={sort} onSort={(x) => { setSort(x); setOpen(null); }} />
                   <div className="headrow">
-                    <FilterBar value={filter} onChange={(f) => { setFilter(f); setOpen(null); }} items={d.items} />
+                    <FilterBar value={filter} onChange={(f) => { setFilter(f); setOpen(null); }} items={byPeople} />
                     {d.items.length > 0 && (
                       <button onClick={() => { setSelected(selected ? null : new Set()); setActionError(null); }}>{selected ? "Cancel" : "Select"}</button>
                     )}

@@ -3,7 +3,7 @@ import { Alert, KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, Vie
 import { Stack, router, useLocalSearchParams } from "expo-router";
 import { NOTE_MAX, type Stage } from "@rsb/photo-sync";
 import { useApp, useQueueVersion, useSyncStatus } from "../../src/state";
-import { LocalImage, ServerImage, mergeGallery, type ServerPhoto } from "../../src/photos";
+import { LocalImage, PersonBadge, ServerImage, mergeGallery, type ServerPhoto } from "../../src/photos";
 import { canDeleteItem, confirmDelete, sharePhotos } from "../../src/photoActions";
 import { Button, C, Chip, DevBanner, SyncPill, STAGES, s } from "../../src/ui";
 
@@ -26,7 +26,7 @@ export default function Review() {
     void app.cache.get<ServerPhoto[]>(`photos-${jobId}`).then((v) => setServer(v ?? []));
   }, [app.cache, jobId]);
 
-  const item = mergeGallery(app.queue, jobId, server, sync.uploadingId).find(
+  const item = mergeGallery(app.queue, jobId, server, sync.uploadingId, app.session?.displayName ?? "").find(
     (i) => i.key === key || (key.startsWith("l:") && i.local?.localId === key.slice(2)) || (key.startsWith("s:") && i.server?.id === key.slice(2)),
   );
 
@@ -76,7 +76,7 @@ export default function Review() {
   const noteChanged = (draft ?? "") !== (item.note ?? "");
   const saveNote = () => change({ note: (draft ?? "").trim() || null });
   const imgH = Math.min(height * 0.55, width * 1.33);
-  const own = !item.server || item.server.uploadedBy === app.session?.displayName;
+  const own = !item.server || (item.server.uploadedByMe ?? item.server.uploadedBy === app.session?.displayName);
   const canEdit = own ? app.can("photos.upload") : app.can("photo_flags.manage");
   pendingNote.current = noteChanged && canEdit ? () => void saveNote() : null;
 
@@ -96,7 +96,10 @@ export default function Review() {
         <View style={{ padding: 16, gap: 16 }}>
           <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
             <SyncPill state={item.state === "server_missing_file" ? "waiting" : item.state} />
-            {item.server?.uploadedBy ? <Text style={s.muted}>by {item.server.uploadedBy}</Text> : null}
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <PersonBadge personKey={item.personKey} name={item.personName} />
+              <Text style={s.muted}>Taken by {item.personKey === "me" ? "you" : item.personName ?? "unknown"}</Text>
+            </View>
           </View>
           {item.local?.lastError ? <Text style={s.error}>{item.local.lastError}</Text> : null}
 
@@ -136,6 +139,9 @@ export default function Review() {
           <View style={[s.card, { gap: 4 }]}>
             <Text style={s.muted}>Job: {item.local?.jobNumber ?? item.server?.jobNumber}</Text>
             <Text style={s.muted}>Taken: {new Date(item.capturedAt).toLocaleString()}</Text>
+            {item.server && item.server.captureSource && item.server.captureSource !== "in_app_camera" ? (
+              <Text style={s.muted}>Uploaded by: {item.server.uploadedBy} ({item.server.captureSource === "imported" ? "imported from a photo library" : "uploaded on the website"})</Text>
+            ) : null}
             {item.local?.location ? (
               <Text style={s.muted}>
                 Location: {item.local.location.latitude.toFixed(5)}, {item.local.location.longitude.toFixed(5)}
