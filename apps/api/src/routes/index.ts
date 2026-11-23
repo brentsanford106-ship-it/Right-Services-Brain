@@ -11,6 +11,7 @@ import { avatarRoutes } from "./avatars.js";
 import { commentRoutes } from "./comments.js";
 import { markupRoutes } from "./markups.js";
 import { issueRoutes } from "./issues.js";
+import { notificationRoutes } from "./notifications.js";
 import { receiptRoutes } from "./receipts.js";
 import { vehicleRoutes } from "./vehicles.js";
 import { memberRoutes } from "./members.js";
@@ -33,6 +34,7 @@ export async function registerRoutes(app: FastifyInstance, deps: RouteDeps): Pro
   await app.register(async (s) => commentRoutes(s, deps));
   await app.register(async (s) => markupRoutes(s, deps));
   await app.register(async (s) => issueRoutes(s, deps));
+  await app.register(async (s) => notificationRoutes(s, deps));
   await app.register(async (s) => teamRoutes(s, deps));
   // Phase 2 modules stay switched off in Phase 1 (they return 404) so nothing outside the photo scope is exposed.
   if (deps.config.phase2Features) {

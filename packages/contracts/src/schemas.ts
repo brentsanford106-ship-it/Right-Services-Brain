@@ -603,3 +603,41 @@ export const DevLoginRequest = z.strictObject({ subject: z.string().regex(/^dev-
 export const DevLoginResponse = z.object({ accessToken: z.string(), expiresIn: z.number().int(), tokenType: z.literal("Bearer") });
 export const DevUser = z.object({ subject: z.string(), displayName: z.string(), description: z.string() });
 export type DevUser = z.infer<typeof DevUser>;
+
+// ---------------------------------------------------------------- in-app alerts (step 5)
+export const NotificationKind = z.enum([
+  "mention", "reply", "photo_comment",
+  "issue_assigned", "issue_reported", "issue_submitted", "issue_approved", "issue_sent_back", "issue_reopened",
+]);
+export type NotificationKind = z.infer<typeof NotificationKind>;
+export const NotificationListQuery = z.strictObject({
+  unread: z.enum(["true", "false"]).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export const Notification = z.object({
+  id: Uuid,
+  kind: NotificationKind,
+  actor: z.string(),
+  actorId: Uuid,
+  actorAvatarAt: z.string().nullable(),
+  jobId: Uuid,
+  jobNumber: z.string(),
+  photoId: Uuid,
+  commentId: Uuid.nullable(),
+  issueId: Uuid.nullable(),
+  issueTitle: z.string().nullable(),
+  /** The start of the comment, or null when it was deleted. */
+  snippet: z.string().nullable(),
+  createdAt: z.string(),
+  readAt: z.string().nullable(),
+});
+export type Notification = z.infer<typeof Notification>;
+export const MarkNotificationsReadRequest = z.strictObject({
+  ids: z.array(Uuid).max(200).optional(),
+  all: z.boolean().optional(),
+}).refine((v) => !!v.all !== !!v.ids?.length, "send either ids or all: true");
+export const NotificationSettings = z.strictObject({
+  /** Alert kinds this person switched off. */
+  muted: z.array(NotificationKind).max(20),
+});
+export type NotificationSettings = z.infer<typeof NotificationSettings>;

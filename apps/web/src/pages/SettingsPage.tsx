@@ -1,3 +1,4 @@
+import { AlertSettings } from "../components/alerts";
 import { useOrgContext, useOrgId, useOrgQuery } from "../lib/hooks";
 import { api, ApiRequestError, putImage, session } from "../lib/api";
 import { PersonBadge } from "../components/photos";
@@ -31,6 +32,7 @@ export function SettingsPage() {
         ))}
       </div>
       <ProfilePictureSetting />
+      <AlertSettings />
       <RecentlyDeletedSetting />
       <SignInAgainSetting />
       <Status query={ctx}>

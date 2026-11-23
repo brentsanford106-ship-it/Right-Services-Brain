@@ -321,4 +321,45 @@ describe("web dashboard", () => {
     expect(reports[0]).toMatchObject({ title: "Missing bolt", markupId: null });
     expect(reports[0]).not.toHaveProperty("assigneeId");
   });
+  it("alerts: bell shows new alerts, clicking one marks it read and opens the photo; alert settings switch kinds off", async () => {
+    session.set("x.y.z");
+    const org = { organization: { id: "o", name: "Demo Co", slug: "demo" }, membershipId: "eli", roles: ["employee"], permissions: ["org.read", "jobs.read_assigned"] };
+    let unread = 2;
+    const alerts = () => ({
+      unreadCount: unread,
+      items: [
+        { id: "n1", kind: "issue_assigned", actor: "Morgan Manager", actorId: "m", actorAvatarAt: null, jobId: "j1", jobNumber: "HP-1001", photoId: "p1", commentId: null, issueId: "i1", issueTitle: "Missing bolt", snippet: null, createdAt: new Date().toISOString(), readAt: unread === 2 ? null : "2026-11-23T00:00:00Z" },
+        { id: "n2", kind: "mention", actor: "Morgan Manager", actorId: "m", actorAvatarAt: null, jobId: "j1", jobNumber: "HP-1001", photoId: "p1", commentId: "c1", issueId: null, issueTitle: null, snippet: "Look @Eli Employee", createdAt: new Date().toISOString(), readAt: null },
+      ],
+    });
+    const reads: unknown[] = [];
+    const patches: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 });
+      if (url.endsWith("/notifications/read")) { reads.push(JSON.parse(String(init!.body))); unread = 1; return json({ unreadCount: 1 }); }
+      if (url.includes("/notifications?")) return json(alerts());
+      if (url.endsWith("/notification-settings") && init?.method === "PATCH") { patches.push(JSON.parse(String(init.body))); return json(JSON.parse(String(init.body))); }
+      if (url.endsWith("/notification-settings")) return json({ muted: [] });
+      if (url.endsWith("/dashboard")) return json({ activeJobs: 1, photosLast7Days: 0, flaggedPhotos: 0, photosAwaitingUpload: 0 });
+      if (url.includes("/photos?") || url.includes("/photo-issues")) return json({ items: [] });
+      if (url.endsWith("/jobs/j1/photos")) return json({ items: [] });
+      if (url.endsWith("/jobs/j1/issues")) return json({ items: [] });
+      if (url.endsWith("/jobs/j1")) return json({ id: "j1", jobNumber: "HP-1001", title: "Pump island (DEMO)", status: "active", siteName: null, siteAddress: null, customerName: null, scheduledStart: null, scheduledEnd: null, assignees: null });
+      return json(org);
+    }));
+    renderApp("/orgs/o");
+    fireEvent.click(await screen.findByRole("button", { name: "Alerts, 2 new" }));
+    expect(screen.getByText("Morgan Manager assigned you “Missing bolt” on HP-1001")).toBeTruthy();
+    expect(screen.getByText("“Look @Eli Employee”")).toBeTruthy();
+    fireEvent.click(screen.getByText("Morgan Manager assigned you “Missing bolt” on HP-1001"));
+    await waitFor(() => expect(reads).toEqual([{ ids: ["n1"] }]));
+    expect(await screen.findByRole("heading", { name: /HP-1001/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Alerts, 1 new" })).toBeTruthy();
+    // Settings: an employee doesn't see the manager-only kinds; unticking one saves it as switched off.
+    fireEvent.click(screen.getByRole("link", { name: "Settings" }));
+    const box = await screen.findByRole("checkbox", { name: "An issue is assigned to me" });
+    expect(screen.queryByRole("checkbox", { name: /managers/ })).toBeNull();
+    fireEvent.click(box);
+    await waitFor(() => expect(patches).toEqual([{ muted: ["issue_assigned"] }]));
+  });
 });

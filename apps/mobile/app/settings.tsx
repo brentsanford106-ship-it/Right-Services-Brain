@@ -7,6 +7,7 @@ import { useTheme, type ThemePref } from "../src/theme";
 import { PersonBadge } from "../src/photos";
 import { chooseProfilePicture } from "../src/importPhotos";
 import { ApiError, NetworkError } from "@rsb/photo-sync";
+import { AlertSettings } from "../src/alerts";
 
 interface TeamMember {
   membershipId: string;
@@ -112,6 +113,7 @@ export default function Settings() {
           </Pressable>
           <Text style={[s.muted, { marginTop: 4 }]}>Shown on the photos you take, instead of your initials. Everyone in your company can see it.</Text>
         </View>
+        <AlertSettings />
         <View style={s.card}>
           <Text style={s.label}>Appearance</Text>
           <View style={{ flexDirection: "row" }}>

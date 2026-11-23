@@ -12,6 +12,7 @@ import { inOrg, type OrgContext } from "../lib/context.js";
 import type { Tx } from "../lib/db.js";
 import { parse } from "../lib/validate.js";
 import { assertJobAccess, JOB_PEOPLE_SQL } from "../lib/access.js";
+import { notify } from "../lib/notify.js";
 import { recordAudit } from "../lib/audit.js";
 import { insertIdempotent } from "../lib/idempotency.js";
 import { HttpError, notFound } from "../lib/errors.js";
@@ -152,6 +153,15 @@ export async function commentRoutes(app: FastifyInstance, { db }: RouteDeps): Pr
       );
       if (created) {
         await addMentions(tx, ctx, id, mentions);
+        // Alerts: people @mentioned, the person replied to, and (for a new comment) whoever took the photo.
+        const base = { jobId: photo.job_id, photoId, commentId: id };
+        await notify(tx, ctx, { ...base, kind: "mention", recipients: mentions });
+        if (body.parentId) {
+          const { rows: parent } = await tx.query<{ author_membership_id: string }>("SELECT author_membership_id FROM photo_comments WHERE id = $1", [body.parentId]);
+          await notify(tx, ctx, { ...base, kind: "reply", recipients: [parent[0]?.author_membership_id].filter((m) => m && !mentions.includes(m)) });
+        } else {
+          await notify(tx, ctx, { ...base, kind: "photo_comment", recipients: [photo.photographer_membership_id].filter((m) => m && !mentions.includes(m)) });
+        }
         // The wording is not copied into the activity log; it stays with the comment.
         await recordAudit(tx, ctx, "photo_comment.created", "photo_comment", id, { photoId, reply: !!body.parentId, mentions: mentions.length });
       }

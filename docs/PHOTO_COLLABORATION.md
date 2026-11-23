@@ -11,7 +11,7 @@ It is built in six steps, each its own pull request, tested on a real iPhone bef
 | 2 | Comments and replies, @mentions, edit history, offline | Built and tested automatically, **not yet tested on an iPhone** |
 | 3 | Markup (circle, arrow, pen, box, text, pin), show/hide, zoom | Built and tested automatically, **not yet tested on an iPhone** |
 | 4 | Issues: assign, In Progress, follow-up photo, send for review, approve, send back, reopen, job Issues tab, To Fix list, employee Report issue | Built and tested automatically, **not yet tested on an iPhone** |
-| 5 | In-app alerts, per-person alert settings, offline polish, sharing an annotated copy | Not started |
+| 5 | In-app alerts, per-person alert settings, offline polish, sharing an annotated copy | 5a alerts and settings: built and tested automatically, **not yet tested on an iPhone**. 5b offline and 5c sharing: in progress |
 | 6 | Company-wall tests for everything new, full acceptance run on iPhone and web | Not started |
 
 JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the paid Apple account and a real build); employees comment, reply and send fixes for approval but don't draw; employees can report issues (they go to the job's Issues list unassigned); every fix needs a manager's approval; keep In Progress, profile pictures, sort by photographer, alert settings and photo-library import.
@@ -188,4 +188,39 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 | Phone screens (photo screen section, Issues list, To fix on Home, filter, badge) | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |
 | Alerts when something is assigned to you, sent for review, approved or sent back | Not built yet (step 5). |
 | Reporting and changing issues with no signal | Not built yet (step 5). |
+
+## Step 5a: in-app alerts and alert settings
+
+**How it works**
+
+- Table `notifications` (migration `0022_notifications.sql`): one row per alert per person. The server writes them as part of the action itself:
+
+  | Alert | Who gets it |
+  | --- | --- |
+  | Someone @mentions you | The people mentioned |
+  | Someone replies to your comment | Whoever wrote the comment (unless they were also @mentioned, so they get one alert, not two) |
+  | Someone comments on a photo you took | Whoever took the photo |
+  | An issue is assigned to you | The new assignee |
+  | Someone reports an issue nobody is assigned to | The managers on the job (people with "Assign and approve issues" who can see it) |
+  | A fix is waiting for review | The managers on the job |
+  | Your fix is approved / sent back | The assignee and whoever sent the fix |
+  | An issue is reopened | The assignee |
+
+- **Never about your own action**, and only for people who can see the job (the database also refuses an alert to yourself). Alerts are re-checked every time they're read. Someone taken off a job stops seeing its alerts, and alerts about a deleted photo are hidden. "Delete forever" removes them.
+- **Only your own.** Nobody can read or mark someone else's alerts. The app's database login can only add alerts and mark them read.
+- **Alert settings** (`notification_preferences`): each person switches kinds on or off for themselves. The two manager-only kinds are shown only to managers. Switched-off alerts are never created.
+- **Website:** a 🔔 in the top bar with the number of new alerts, checked every minute. Clicking an alert marks it read and opens the photo. There is also **Mark all read**. **Settings → Alerts** has the switches.
+- **Phone:** a **🔔 Alerts** bar on Home (with the number of new ones). It opens the Alerts list, and tapping one opens the photo. **Settings → Alerts** has the switches. The last list seen is kept (encrypted) for reading without signal.
+- **Not built:** phone notifications when the app is closed (push). These need the paid Apple account and a real App Store build. Alerts for new @mentions added while editing a comment are not sent either (only the first version's mentions are).
+
+**Real vs simulated**
+
+| Part | State |
+| --- | --- |
+| Table, walls, add-only, "not to yourself", cascade on delete forever | Real, tested against PostgreSQL |
+| Who gets each alert, settings, marking read, hidden for deleted photos, other companies | Real, tested over HTTP (`apps/api/test/notifications.test.ts`, 5 tests) |
+| Alert sentences and setting labels (shared by website and phone) | Real, tested (`packages/photo-sync/test/alerts.test.ts`) |
+| Website bell and settings | Real, tested in a simulated browser (`apps/web/src/App.test.tsx`) |
+| Phone Alerts screen, Home bar, settings switches | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |
+| Push notifications when the app is closed | Not built (needs the Apple account and an App Store build). |
 

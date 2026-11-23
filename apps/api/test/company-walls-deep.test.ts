@@ -154,6 +154,8 @@ describe("company walls: the database rules themselves", () => {
         "member_invites:INSERT,SELECT",
         "membership_roles:DELETE,INSERT,SELECT,UPDATE",
         `mileage_records:${rw}`,
+        // 0022: alerts are add-only (only "read" can change); alert settings can only change the muted list.
+        "notification_preferences:INSERT,SELECT", "notifications:INSERT,SELECT",
         "organization_memberships:SELECT", "organizations:SELECT", "permissions:SELECT",
         // 0019: comments are add-only; only their wording and edited/deleted markers can change (column grants below).
         "photo_comment_mentions:INSERT,SELECT", "photo_comment_revisions:INSERT,SELECT", "photo_comments:INSERT,SELECT",
@@ -176,6 +178,9 @@ describe("company walls: the database rules themselves", () => {
       expect(cols.map((r) => r.x)).toEqual([
         "member_invites.expires_at:UPDATE",
         "member_invites.revoked_at:UPDATE",
+        "notification_preferences.muted_kinds:UPDATE",
+        "notification_preferences.updated_at:UPDATE",
+        "notifications.read_at:UPDATE",
         // 0018: profile pictures. The API only lets people change their own (or a team manager remove one).
         "organization_memberships.avatar_storage_key:UPDATE",
         "organization_memberships.avatar_updated_at:UPDATE",

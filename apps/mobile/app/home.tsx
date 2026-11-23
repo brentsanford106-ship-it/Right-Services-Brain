@@ -21,12 +21,15 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(false);
   const [toFix, setToFix] = useState<{ mine: number; review: number } | null>(null);
+  const [unread, setUnread] = useState(0);
 
   const load = useCallback(async () => {
     if (!app.session) return;
     setLoading(true);
     const base = `/v1/orgs/${app.session.orgId}`;
     void app.refreshPermissions();
+    // New alerts (in-app; checked each time Home is shown).
+    void app.api.get<{ unreadCount: number }>(`${base}/notifications/unread-count`).then((r) => setUnread(r.unreadCount)).catch(() => undefined);
     // "To fix": issues assigned to me, and (managers) fixes waiting for review. Quietly skipped when offline.
     void Promise.all([
       app.api.get<{ items: unknown[] }>(`${base}/photo-issues?assigned=me&status=active`),
@@ -113,6 +116,10 @@ export default function Home() {
 
         <Pressable onPress={() => router.push("/sync")} style={({ pressed }) => ({ backgroundColor: upload.bg, borderRadius: 12, padding: 14, opacity: pressed ? 0.7 : 1 })}>
           <Text style={{ color: upload.fg, fontWeight: "700", fontSize: 16 }}>{upload.text} ›</Text>
+        </Pressable>
+
+        <Pressable accessibilityRole="button" onPress={() => router.push("/alerts")} style={({ pressed }) => ({ backgroundColor: unread ? "#d40e3b18" : C.card, borderWidth: unread ? 0 : 1, borderColor: C.line, borderRadius: 12, padding: 14, opacity: pressed ? 0.7 : 1 })}>
+          <Text style={{ color: unread ? "#d40e3b" : C.text, fontWeight: unread ? "700" : "500", fontSize: 16 }}>🔔 {unread ? `${unread} new alert${unread > 1 ? "s" : ""}` : "Alerts"} ›</Text>
         </Pressable>
 
         {toFix && (toFix.mine || toFix.review) ? (

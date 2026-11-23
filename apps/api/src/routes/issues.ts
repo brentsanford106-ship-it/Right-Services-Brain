@@ -15,6 +15,7 @@ import { inOrg, type OrgContext } from "../lib/context.js";
 import type { Tx } from "../lib/db.js";
 import { parse } from "../lib/validate.js";
 import { assertJobAccess, JOB_PEOPLE_SQL, jobVisibilitySql } from "../lib/access.js";
+import { jobIssueManagers, notify } from "../lib/notify.js";
 import { recordAudit } from "../lib/audit.js";
 import { insertIdempotent } from "../lib/idempotency.js";
 import { HttpError, notFound } from "../lib/errors.js";
@@ -184,6 +185,9 @@ export async function issueRoutes(app: FastifyInstance, { db }: RouteDeps): Prom
       if (created) {
         await addEvent(tx, ctx, id, { kind: "reported", to: "open", note: body.details || null });
         if (body.assigneeId) await addEvent(tx, ctx, id, { kind: "assigned", assignee: body.assigneeId });
+        const base = { jobId: photo.job_id, photoId, issueId: id };
+        if (body.assigneeId) await notify(tx, ctx, { ...base, kind: "issue_assigned", recipients: [body.assigneeId] });
+        else await notify(tx, ctx, { ...base, kind: "issue_reported", recipients: await jobIssueManagers(tx, ctx, photo.job_id) });
         await recordAudit(tx, ctx, "photo_issue.reported", "photo_issue", id, { photoId, jobId: photo.job_id, assigned: !!body.assigneeId });
       }
       return { issue: toIssue(await loadIssue(tx, ctx, id), ctx), created };
@@ -320,6 +324,13 @@ export async function issueRoutes(app: FastifyInstance, { db }: RouteDeps): Prom
           await addEvent(tx, ctx, issueId, { kind: "edited", note, clientRef: ref });
           break;
       }
+      // Alerts for the people this change is for.
+      const base = { jobId: r.job_id, photoId: r.photo_id, issueId };
+      if (body.action === "assign" && body.assigneeId) await notify(tx, ctx, { ...base, kind: "issue_assigned", recipients: [body.assigneeId] });
+      if (body.action === "submit") await notify(tx, ctx, { ...base, kind: "issue_submitted", recipients: await jobIssueManagers(tx, ctx, r.job_id) });
+      if (body.action === "approve") await notify(tx, ctx, { ...base, kind: "issue_approved", recipients: [r.submitted_by_membership_id, r.assignee_membership_id] });
+      if (body.action === "send_back") await notify(tx, ctx, { ...base, kind: "issue_sent_back", recipients: [r.assignee_membership_id, r.submitted_by_membership_id] });
+      if (body.action === "reopen") await notify(tx, ctx, { ...base, kind: "issue_reopened", recipients: [r.assignee_membership_id] });
       await recordAudit(tx, ctx, `photo_issue.${body.action}`, "photo_issue", issueId, { from: r.status, jobId: r.job_id });
       return toIssue(await loadIssue(tx, ctx, issueId), ctx);
     });
