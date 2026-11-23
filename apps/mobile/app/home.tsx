@@ -20,12 +20,18 @@ export default function Home() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(false);
+  const [toFix, setToFix] = useState<{ mine: number; review: number } | null>(null);
 
   const load = useCallback(async () => {
     if (!app.session) return;
     setLoading(true);
     const base = `/v1/orgs/${app.session.orgId}`;
     void app.refreshPermissions();
+    // "To fix": issues assigned to me, and (managers) fixes waiting for review. Quietly skipped when offline.
+    void Promise.all([
+      app.api.get<{ items: unknown[] }>(`${base}/photo-issues?assigned=me&status=active`),
+      app.can("photo_issues.manage") ? app.api.get<{ items: { can: { approve: boolean } }[] }>(`${base}/photo-issues?status=awaiting_review`) : Promise.resolve({ items: [] }),
+    ]).then(([m, r]) => setToFix({ mine: m.items.length, review: r.items.filter((i) => i.can.approve).length })).catch(() => undefined);
     try {
       const [d, j] = await Promise.all([
         app.api.get<Dashboard>(`${base}/dashboard`),
@@ -108,6 +114,14 @@ export default function Home() {
         <Pressable onPress={() => router.push("/sync")} style={({ pressed }) => ({ backgroundColor: upload.bg, borderRadius: 12, padding: 14, opacity: pressed ? 0.7 : 1 })}>
           <Text style={{ color: upload.fg, fontWeight: "700", fontSize: 16 }}>{upload.text} ›</Text>
         </Pressable>
+
+        {toFix && (toFix.mine || toFix.review) ? (
+          <Pressable accessibilityRole="button" onPress={() => router.push("/issues")} style={({ pressed }) => ({ backgroundColor: "#b4530922", borderRadius: 12, padding: 14, opacity: pressed ? 0.7 : 1 })}>
+            <Text style={{ color: "#b45309", fontWeight: "700", fontSize: 16 }}>
+              🔧 {[toFix.mine ? `${toFix.mine} to fix` : "", toFix.review ? `${toFix.review} waiting for your review` : ""].filter(Boolean).join(" · ")} ›
+            </Text>
+          </Pressable>
+        ) : null}
 
         <View style={{ flexDirection: "row", gap: 12 }}>
           <BigAction label="Jobs" sub="Find a job, take photos" onPress={() => router.push("/jobs")} primary />

@@ -6,3 +6,4 @@ export * from "./people";
 export * from "./exif";
 export * from "./comments";
 export * from "./markup";
+export * from "./issues";

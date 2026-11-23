@@ -159,6 +159,8 @@ describe("company walls: the database rules themselves", () => {
         "photo_comment_mentions:INSERT,SELECT", "photo_comment_revisions:INSERT,SELECT", "photo_comments:INSERT,SELECT",
         `photo_flags:${rw}`,
         // 0020: marks on photos are add-only; they can only be marked removed (column grants below).
+        // 0021: issues; their history is add-only, and only an issue's working fields can change (column grants below).
+        "photo_issue_events:INSERT,SELECT", "photo_issues:INSERT,SELECT",
         "photo_markups:INSERT,SELECT",
         `photos:${rw}`, `receipts:${rw}`,
         "role_permissions:DELETE,INSERT,SELECT,UPDATE", "roles:DELETE,INSERT,SELECT,UPDATE",
@@ -185,6 +187,14 @@ describe("company walls: the database rules themselves", () => {
         "photo_comments.deleted_at:UPDATE",
         "photo_comments.deleted_by_membership_id:UPDATE",
         "photo_comments.edited_at:UPDATE",
+        "photo_issues.assignee_membership_id:UPDATE",
+        "photo_issues.details:UPDATE",
+        "photo_issues.resolved_at:UPDATE",
+        "photo_issues.resolved_by_membership_id:UPDATE",
+        "photo_issues.status:UPDATE",
+        "photo_issues.submitted_by_membership_id:UPDATE",
+        "photo_issues.title:UPDATE",
+        "photo_issues.updated_at:UPDATE",
         "photo_markups.removed_at:UPDATE",
         "photo_markups.removed_by_membership_id:UPDATE",
       ]);

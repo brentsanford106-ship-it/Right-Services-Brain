@@ -29,6 +29,8 @@ export interface ServerPhoto {
   commentCount?: number;
   /** Marks drawn on the photo. */
   markupCount?: number;
+  /** Issues on the photo that aren't fixed yet. */
+  openIssueCount?: number;
   /** Size of the display copy (what drawings are measured against). */
   widthPx?: number | null;
   heightPx?: number | null;
@@ -77,7 +79,7 @@ function who(sp: ServerPhoto | null, local: QueuedPhoto | null, me: Me): Pick<Ga
   return { personKey: sp.photographerId, personName: sp.photographer ?? null, personId: sp.photographerId, personAvatarAt: sp.photographerAvatarAt ?? null };
 }
 
-export type Filter = "all" | Stage | "flagged" | "comments";
+export type Filter = "all" | Stage | "flagged" | "comments" | "issues";
 
 export function mergeGallery(queue: PhotoQueue, jobId: string, server: ServerPhoto[], uploadingId: string | null, me: Me = { name: "", membershipId: null, avatarAt: null }): GalleryItem[] {
   const out: GalleryItem[] = [];
@@ -110,6 +112,7 @@ export function applyFilter(items: GalleryItem[], f: Filter): GalleryItem[] {
   if (f === "all") return items;
   if (f === "flagged") return items.filter((i) => i.flagged);
   if (f === "comments") return items.filter((i) => (i.server?.commentCount ?? 0) > 0);
+  if (f === "issues") return items.filter((i) => (i.server?.openIssueCount ?? 0) > 0);
   return items.filter((i) => i.stage === f);
 }
 

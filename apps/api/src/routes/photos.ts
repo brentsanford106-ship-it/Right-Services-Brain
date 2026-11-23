@@ -52,6 +52,7 @@ interface PhotoRow {
   comment_count: number;
   last_comment_at: Date | null;
   markup_count: number;
+  open_issue_count: number;
   latitude: number | null;
   longitude: number | null;
   width_px: number | null;
@@ -67,7 +68,8 @@ const PHOTO_SELECT = `SELECT p.id, p.job_id, j.job_number, j.site_name, p.stage,
                              (SELECT count(*)::int FROM photo_flags f WHERE f.organization_id = p.organization_id AND f.photo_id = p.id AND f.status = 'open') AS open_flags,
                              (SELECT count(*)::int FROM photo_comments c WHERE c.organization_id = p.organization_id AND c.photo_id = p.id AND c.deleted_at IS NULL) AS comment_count,
                              (SELECT max(c.created_at) FROM photo_comments c WHERE c.organization_id = p.organization_id AND c.photo_id = p.id AND c.deleted_at IS NULL) AS last_comment_at,
-                             (SELECT count(*)::int FROM photo_markups k WHERE k.organization_id = p.organization_id AND k.photo_id = p.id AND k.removed_at IS NULL) AS markup_count
+                             (SELECT count(*)::int FROM photo_markups k WHERE k.organization_id = p.organization_id AND k.photo_id = p.id AND k.removed_at IS NULL) AS markup_count,
+                             (SELECT count(*)::int FROM photo_issues pi WHERE pi.organization_id = p.organization_id AND pi.photo_id = p.id AND pi.status <> 'resolved') AS open_issue_count
                         FROM photos p
                         JOIN jobs j ON j.organization_id = p.organization_id AND j.id = p.job_id
                         JOIN organization_memberships m ON m.organization_id = p.organization_id AND m.id = p.uploaded_by_membership_id
@@ -103,6 +105,7 @@ const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
   commentCount: r.comment_count,
   lastCommentAt: r.last_comment_at?.toISOString() ?? null,
   markupCount: r.markup_count,
+  openIssueCount: r.open_issue_count,
   latitude: r.latitude,
   longitude: r.longitude,
   widthPx: r.width_px,
@@ -405,6 +408,10 @@ export async function photoRoutes(app: FastifyInstance, { db, storage }: RouteDe
         const { rows } = await tx.query<{ job_id: string }>("SELECT job_id FROM photos WHERE id = $1 AND deleted_at IS NOT NULL", [id]);
         if (!rows[0]) throw notFound();
         await assertJobAccess(tx, ctx, rows[0].job_id);
+        const { rows: h } = await tx.query<{ kept: boolean }>("SELECT app.photo_has_issue_history($1, $2) AS kept", [ctx.orgId, id]);
+        if (h[0]?.kept) {
+          throw new HttpError("conflict", "One of these photos is part of an issue's history, so it is kept. It can stay in Recently Deleted or be restored, but not deleted forever.");
+        }
       }
       const all: string[] = [];
       for (const id of ids) {

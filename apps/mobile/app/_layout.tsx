@@ -64,6 +64,7 @@ export default function RootLayout() {
           <Stack.Screen name="jobs/[jobId]/deleted" options={{ title: "Recently Deleted" }} />
           <Stack.Screen name="photo/[key]" options={{ title: "Photo" }} />
           <Stack.Screen name="photo/draw" options={{ title: "Draw", gestureEnabled: false }} />
+          <Stack.Screen name="issues" options={{ title: "To fix" }} />
           <Stack.Screen name="sync" options={{ title: "Uploads" }} />
           <Stack.Screen name="settings" options={{ title: "Settings" }} />
           <Stack.Screen name="team/index" options={{ title: "Team & Roles" }} />

@@ -118,7 +118,8 @@ img.person { object-fit: cover; padding: 0; }
 label.button { display: inline-block; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; background: var(--card); }
 
 /* Comments (step 2) */
-.commentmark { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,.65); color: #fff; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
+.marksrow { position: absolute; top: 6px; left: 6px; display: flex; gap: 4px; }
+.commentmark, .issuemark { background: rgba(0,0,0,.65); color: #fff; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 700; }
 .comments { display: grid; gap: 8px; border-top: 1px solid var(--line, #3334); padding-top: 10px; }
 .comments .thread { display: grid; gap: 6px; }
 .comment { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; }
@@ -144,3 +145,31 @@ svg.marks { position: absolute; inset: 0; width: 100%; height: 100%; overflow: v
 .swatch.on { outline: 3px solid var(--accent); outline-offset: 1px; }
 .mk-viewbar { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; background: rgba(0,0,0,.6); padding: 6px; border-radius: 10px; }
 .about-mark { display: flex; gap: 6px; align-items: center; }
+
+/* Issues to fix (step 4) */
+.issuemark { background: #b45309 !important; }
+.issues { display: grid; gap: 8px; border-top: 1px solid var(--line, #3334); padding-top: 10px; }
+.issues > .ihead, .issue .ihead { display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.issue { display: grid; gap: 4px; border: 1px solid var(--line); border-left: 4px solid #b45309; border-radius: 8px; padding: 8px 10px; background: var(--card); }
+.issue.resolved { border-left-color: #15803d; opacity: .85; }
+.issue.awaiting_review { border-left-color: #2563eb; }
+.issue .ititle { overflow-wrap: anywhere; }
+.issue .idetails { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.istatus { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 8px; background: #b4530922; color: #b45309; white-space: nowrap; }
+.istatus.in_progress { background: #a16207; color: #fff; }
+.istatus.awaiting_review { background: #2563eb22; color: #2563eb; }
+.istatus.resolved { background: #15803d22; color: #15803d; }
+.istatus.sentback { background: var(--flag); color: #fff; }
+.iactions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.iform { display: grid; gap: 6px; }
+.iform input, .iform textarea { width: 100%; box-sizing: border-box; }
+.iform .row { display: flex; gap: 6px; justify-content: flex-end; }
+.ihistory { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.ihistory .inote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fixpick { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; max-height: 240px; overflow: auto; }
+.fixpick button { display: grid; gap: 2px; padding: 2px; border: 2px solid transparent; border-radius: 6px; width: 100%; }
+.fixpick button.on { border-color: var(--accent); }
+.fixpick .thumb { width: 100%; aspect-ratio: 1; object-fit: cover; }
+.issuelist { display: grid; gap: 10px; }
+.igroup { display: grid; gap: 8px; }
+.igroup h3 { margin: 6px 0 0; font-size: 15px; }

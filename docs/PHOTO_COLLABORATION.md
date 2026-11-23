@@ -10,7 +10,7 @@ It is built in six steps, each its own pull request, tested on a real iPhone bef
 | 1b | Profile pictures, importing photos from the phone's library | Built and tested automatically, **not yet tested on an iPhone** |
 | 2 | Comments and replies, @mentions, edit history, offline | Built and tested automatically, **not yet tested on an iPhone** |
 | 3 | Markup (circle, arrow, pen, box, text, pin), show/hide, zoom | Built and tested automatically, **not yet tested on an iPhone** |
-| 4 | Issues: assign, In Progress, follow-up photo, send for review, approve, send back, reopen, job Issues tab, To Fix list, employee Report issue | Not started |
+| 4 | Issues: assign, In Progress, follow-up photo, send for review, approve, send back, reopen, job Issues tab, To Fix list, employee Report issue | Built and tested automatically, **not yet tested on an iPhone** |
 | 5 | In-app alerts, per-person alert settings, offline polish, sharing an annotated copy | Not started |
 | 6 | Company-wall tests for everything new, full acceptance run on iPhone and web | Not started |
 
@@ -142,4 +142,50 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 | Website drawing, hide/show, comment on a mark | Real, tested in a simulated browser (`apps/web/src/App.test.tsx`). Not yet tried in a real browser by JB. |
 | Phone drawing screen and drawings on the photo screen | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** Touch drawing while zoomed is the part most likely to need adjusting. |
 | Saving drawings with no signal | Not built yet (step 5). |
+
+## Step 4: issues to fix
+
+**How it works**
+
+- Tables `photo_issues` and `photo_issue_events` (migration `0021_photo_issues.sql`).
+  - An issue belongs to one photo and its job. It can point at a mark on that photo ("the red circle"). The database checks the photo is on the job and the mark is on the photo.
+  - Each issue has a title, optional details, a status, who it's assigned to, who reported it, who sent the fix and who approved it.
+  - `photo_issue_events` is the history. Rows are only ever added: who did what, when, the note, and the status before and after. The app's database login can't change or delete them.
+- **Statuses:** Open, In progress, Waiting for review, Fixed. The database itself only allows these moves:
+  - Open to In progress (the assignee taps **Start**), or Open / In progress to Waiting for review (the assignee **sends a fix**).
+  - Waiting for review to Fixed (**Approve**) or back to Open (**Send back**, which needs a note saying what still needs fixing). The list shows "Sent back".
+  - Fixed back to Open (**Reopen**).
+  - Giving it to someone else moves "In progress" back to Open, so the new person starts fresh.
+- **Who does what:**
+  - **photo_issues.create** ("Report issues"): on for everyone. Employees use **🔧 Report issue** on a photo. Their reports aren't assigned to anyone and wait in the job's Issues list for a manager (JB's decision).
+  - **photo_issues.manage** ("Assign and approve issues"): Owner and Manager. They assign, approve, send back, reopen and edit.
+  - Only the person it's assigned to can start it or send a fix. Sending a fix also needs "Upload photos".
+  - **Nobody approves their own fix.** The one exception is an issue a manager reported, assigned to themselves and fixed (JB's decision).
+  - The person who reported an issue can fix its wording until it's assigned.
+- **Fix photos:** when sending a fix, you can choose photos from the same job (for example, the "After" photo of the repair). The server checks they're on the same job and that you can see them.
+- **Safe when two people act at once:** every change says what status the person saw. If someone else changed the issue first, nothing happens and the app says *"This issue changed while you were away: it is now …"*. The same tap sent twice is only applied once.
+- **Photos with issue history are kept.** "Delete forever" and the automatic clean-out skip a photo that has issues, so the record of what was fixed stays. Deleting it normally (Recently Deleted) still works. The issue then shows "The photo was deleted".
+- **Website:**
+  - Photo viewer: a **To fix** section with **🔧 Report issue** (about the selected mark, if one is selected) and the buttons each person may use. It also has a **History** list.
+  - Gallery: **🔧 To fix** filter and a 🔧 count on thumbnails.
+  - Job page: **Issues to fix**, grouped as Waiting for review, Not assigned yet, Being fixed, and Fixed (folded away). **Open the photo** jumps to it.
+  - Overview: **🔧 Assigned to me** and, for managers, **Fixes waiting for review**.
+- **Phone:**
+  - Photo screen: the same **To fix** section with Report issue, Start, Send fix for review (choose fix photos), Approve, Send back, Reopen, Assign and History.
+  - Gallery: **🔧 To fix** filter, 🔧 count on thumbnails, and a **🔧 Issues** link to the job's Issues list.
+  - Home: a **🔧 … to fix · … waiting for your review** bar when you have any. It opens the To fix list.
+- **Offline:** the last issues seen are kept (encrypted) and show without signal. **Reporting and changing an issue need a connection for now.** If it fails, what you typed stays on screen. Doing these offline is planned with step 5.
+- Every change is in the activity log (`photo_issue.assign`, `.submit`, `.approve` …).
+
+**Real vs simulated**
+
+| Part | State |
+| --- | --- |
+| Tables, walls, allowed status moves, locked history, kept photos | Real, tested against PostgreSQL |
+| API: report, assign, start, submit with fix photos, approve, send back, reopen, edit, no self-approval, conflicts, resend-safe, walls | Real, tested over HTTP (`apps/api/test/photo-issues.test.ts`, 9 tests) |
+| Status words and grouping (shared by website and phone) | Real, tested (`packages/photo-sync/test/issues.test.ts`) |
+| Website issues in the viewer, job list, Overview, filter and badge | Real, tested in a simulated browser (`apps/web/src/App.test.tsx`). Not yet tried in a real browser by JB. |
+| Phone screens (photo screen section, Issues list, To fix on Home, filter, badge) | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |
+| Alerts when something is assigned to you, sent for review, approved or sent back | Not built yet (step 5). |
+| Reporting and changing issues with no signal | Not built yet (step 5). |
 

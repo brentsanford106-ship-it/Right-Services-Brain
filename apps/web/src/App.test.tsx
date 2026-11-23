@@ -251,4 +251,74 @@ describe("web dashboard", () => {
     expect(sent.add[0]).toMatchObject({ kind: "arrow", color: "red", points: [[0.5, 0.5], [0.8, 0.7]] });
     await waitFor(() => expect(screen.queryByRole("button", { name: "Save drawing" })).toBeNull()); // back to viewing
   });
+  it("issues: to-fix badge and filter, job Issues list, approve a fix, and an employee reports an issue without assigning it", async () => {
+    session.set("x.y.z");
+    let perms = ["org.read", "jobs.read_all", "photo_comments.create", "photo_issues.create", "photo_issues.manage"];
+    const org = () => ({ organization: { id: "o", name: "Demo Co", slug: "demo" }, membershipId: "m", roles: ["manager"], permissions: perms });
+    const job = { id: "j1", jobNumber: "HP-1001", title: "Pump island (DEMO)", status: "active", siteName: null, siteAddress: null, customerName: null, scheduledStart: null, scheduledEnd: null, assignees: null };
+    const base = { jobId: "j1", jobNumber: "HP-1001", siteName: null, stage: "during", note: null, flagged: false, flaggedAt: null, uploadStatus: "stored", openFlags: 0, latitude: null, longitude: null, widthPx: 10, heightPx: 10, hasPreview: true, storedAt: null, captureSource: "in_app_camera", uploadedByMe: false, canDelete: false, capturedAtKnown: true, photographerAvatarAt: null, photographerId: "eli", photographer: "Eli Employee", uploadedBy: "Eli Employee", takenByMe: false, lastCommentAt: null, commentCount: 0, markupCount: 0 };
+    const photos = [
+      { ...base, id: "p1", capturedAt: "2026-11-10T09:00:00Z", openIssueCount: 1 },
+      { ...base, id: "p2", capturedAt: "2026-11-10T10:00:00Z", stage: "after", openIssueCount: 0 },
+    ];
+    const none = { assign: false, start: false, submit: false, approve: false, sendBack: false, reopen: false, edit: false };
+    const issue = { id: "i1", jobId: "j1", jobNumber: "HP-1001", photoId: "p1", photoDeleted: false, markupId: null, title: "Re-seal the pump base", details: null, status: "awaiting_review", assigneeId: "eli", assignee: "Eli Employee", createdById: "m", createdBy: "Morgan Manager", submittedBy: "Eli Employee", resolvedBy: null, resolvedAt: null, createdAt: "2026-11-10T09:05:00Z", updatedAt: "2026-11-10T11:00:00Z", lastEvent: "submitted", fixPhotoIds: ["p2"], can: { ...none, assign: true, approve: true, sendBack: true, edit: true } };
+    const actions: Record<string, unknown>[] = [];
+    const reports: Record<string, unknown>[] = [];
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status });
+      if (url.includes("/content") || url.endsWith("/avatar")) return new Response("img", { status: 200 });
+      if (url.endsWith("/photo-issues/i1/actions")) { actions.push(JSON.parse(String(init!.body))); return json({ ...issue, status: "resolved", can: none }); }
+      if (url.endsWith("/photo-issues/i1")) return json({ issue, history: [{ id: "e1", kind: "submitted", actor: "Eli Employee", fromStatus: "in_progress", toStatus: "awaiting_review", note: "Sealed it", assignee: null, photoId: null, createdAt: "2026-11-10T11:00:00Z" }] });
+      if (url.endsWith("/photos/p2/issues") && init?.method === "POST") { reports.push(JSON.parse(String(init.body))); return json({ ...issue, id: "i2", status: "open", assigneeId: null, assignee: null, can: none }, 201); }
+      if (url.endsWith("/photos/p1/issues")) return json({ items: [issue] });
+      if (url.endsWith("/photos/p2/issues")) return json({ items: [] });
+      if (url.endsWith("/jobs/j1/issues")) return json({ items: [issue] });
+      if (url.endsWith("/comments")) return json({ items: [] });
+      if (url.endsWith("/markups")) return json({ items: [] });
+      if (url.endsWith("/jobs/j1/people")) return json({ items: [{ id: "eli", name: "Eli Employee", avatarAt: null, me: false }, { id: "m", name: "Morgan Manager", avatarAt: null, me: true }] });
+      if (url.endsWith("/jobs/j1/photos")) return json({ items: photos });
+      if (url.endsWith("/jobs/j1")) return json(job);
+      return json(org());
+    }));
+    const view = renderApp("/orgs/o/jobs/j1");
+    expect(await screen.findByTitle("1 to fix")).toBeTruthy();
+    // The job's Issues list groups it under "Waiting for review".
+    expect(await screen.findByRole("heading", { name: "Waiting for review (1)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /To fix/ }));
+    expect(screen.getAllByRole("button", { name: /^Open .* photo from/ })).toHaveLength(1);
+    // Open the photo from the issue: the viewer shows the same issue with Approve / Send back.
+    fireEvent.click(screen.getByRole("button", { name: "Open the photo" }));
+    const viewer = await screen.findByRole("dialog");
+    await waitFor(() => expect(viewer.querySelectorAll("[data-testid=issue]").length).toBe(1));
+    const sendBack = Array.from(viewer.querySelectorAll("button")).find((b) => b.textContent === "Send back")!;
+    fireEvent.click(sendBack);
+    // Sending back needs a note.
+    const sbButtons = () => Array.from(viewer.querySelectorAll("button")).filter((b) => b.textContent === "Send back");
+    expect(sbButtons().at(-1)!.disabled).toBe(true);
+    fireEvent.click(Array.from(viewer.querySelectorAll("button")).find((b) => b.textContent === "Cancel")!);
+    fireEvent.click(Array.from(viewer.querySelectorAll("button")).find((b) => b.textContent === "Approve")!);
+    fireEvent.click(Array.from(viewer.querySelectorAll("button")).find((b) => b.textContent === "Approve fix")!);
+    await waitFor(() => expect(actions).toHaveLength(1));
+    expect(actions[0]).toMatchObject({ action: "approve", expectedStatus: "awaiting_review" });
+    // History shows who did what.
+    fireEvent.click(Array.from(viewer.querySelectorAll("button")).find((b) => b.textContent === "History")!);
+    expect(await screen.findByText(/Sealed it/)).toBeTruthy();
+    view.unmount();
+
+    // An employee reports an issue: no "Assign to" choice, it goes to the job list for a manager.
+    perms = ["org.read", "jobs.read_all", "photo_comments.create", "photo_issues.create"];
+    renderApp("/orgs/o/jobs/j1");
+    await screen.findByTitle("1 to fix");
+    fireEvent.click(screen.getByRole("button", { name: /Open After photo/ }));
+    const v2 = await screen.findByRole("dialog");
+    fireEvent.click(await screen.findByRole("button", { name: "🔧 Report issue" }));
+    expect(screen.getByText(/A manager will see this/)).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "What needs fixing" }), { target: { value: "Missing bolt" } });
+    fireEvent.click(Array.from(v2.querySelectorAll("button")).find((b) => b.textContent === "Report issue")!);
+    await waitFor(() => expect(reports).toHaveLength(1));
+    expect(reports[0]).toMatchObject({ title: "Missing bolt", markupId: null });
+    expect(reports[0]).not.toHaveProperty("assigneeId");
+  });
 });

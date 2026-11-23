@@ -8,6 +8,7 @@ import { useApp, useQueueVersion, useSyncStatus } from "../../src/state";
 import { LocalImage, PersonBadge, ServerImage, mergeGallery, type ServerPhoto } from "../../src/photos";
 import { canDeleteItem, confirmDelete, sharePhotos } from "../../src/photoActions";
 import { PhotoComments } from "../../src/comments";
+import { PhotoIssues } from "../../src/issues";
 import { Button, C, Chip, DevBanner, SyncPill, STAGES, s } from "../../src/ui";
 
 /**
@@ -174,6 +175,10 @@ export default function Review() {
               <Button title="Save note" style={{ marginTop: 10 }} busy={saving} onPress={() => void saveNote()} />
             ) : null}
           </View>
+
+          <PhotoIssues key={`i-${item.key}`} jobId={jobId} serverId={serverId} marks={markList}
+            aboutMark={picked ? markList.find((m) => m.id === picked) ?? null : null}
+            onShowMark={(id) => { setShowMarks(true); setPicked(id); }} />
 
           <PhotoComments key={item.key} jobId={jobId} serverId={serverId} localId={item.local && !item.local.remoteOnly ? item.local.localId : null}
             marks={markList} aboutMark={picked ? markList.find((m) => m.id === picked) ?? null : null} onClearMark={() => setPicked(null)}

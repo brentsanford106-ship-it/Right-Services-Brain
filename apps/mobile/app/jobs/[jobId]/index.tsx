@@ -15,6 +15,7 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "after", label: "After" },
   { value: "flagged", label: "⚑ Flagged" },
   { value: "comments", label: "💬 Comments" },
+  { value: "issues", label: "🔧 To fix" },
 ];
 
 export default function JobGallery() {
@@ -90,6 +91,7 @@ export default function JobGallery() {
       ...(Object.keys(SORT_LABELS) as Sort[]).map((k) => ({ text: `${k === sort ? "✓ " : ""}${SORT_LABELS[k]}`, onPress: () => setSort(k) })),
       { text: "Cancel", style: "cancel" as const },
     ]);
+  const openIssues = server.reduce((n, p) => n + (p.openIssueCount ?? 0), 0);
   const waiting = all.filter((i) => i.state === "waiting" || i.state === "uploading").length;
   const attention = all.filter((i) => i.state === "needs_attention").length;
 
@@ -209,6 +211,14 @@ export default function JobGallery() {
           </Pressable>
         </View>
         {note ? <Text style={[s.muted, { marginTop: 6 }]}>{note}</Text> : null}
+        <Pressable
+          accessibilityRole="button"
+          hitSlop={8}
+          style={{ marginTop: 6, alignSelf: "flex-start" }}
+          onPress={() => router.push({ pathname: "/issues", params: { jobId, jobNumber: job?.jobNumber ?? jobNumber ?? "" } })}
+        >
+          <Text style={{ color: C.link, fontWeight: "600" }}>🔧  Issues{openIssues ? ` (${openIssues} to fix)` : ""} ›</Text>
+        </Pressable>
         {deletedCount ? (
           <Pressable
             accessibilityRole="button"
@@ -254,7 +264,7 @@ export default function JobGallery() {
             onPress={() => (selecting ? toggle(item.key) : open(item))}
             onLongPress={() => (selecting ? toggle(item.key) : startSelecting(item))}
             style={{ margin: 2, width: size, height: size }}
-            accessibilityLabel={`${item.stage} photo, taken by ${item.personKey === "me" ? "you" : item.personName ?? "unknown"}${item.flagged ? ", flagged" : ""}${item.server?.commentCount ? `, ${item.server.commentCount} comments` : ""}${selecting ? (selected.has(item.key) ? ", selected" : ", not selected") : ""}`}
+            accessibilityLabel={`${item.stage} photo, taken by ${item.personKey === "me" ? "you" : item.personName ?? "unknown"}${item.flagged ? ", flagged" : ""}${item.server?.commentCount ? `, ${item.server.commentCount} comments` : ""}${item.server?.openIssueCount ? `, ${item.server.openIssueCount} to fix` : ""}${selecting ? (selected.has(item.key) ? ", selected" : ", not selected") : ""}`}
           >
             {item.local && !item.local.remoteOnly ? (
               <LocalImage localId={item.local.localId} which="thumbnail" style={{ width: size, height: size, borderRadius: 6 }} />
@@ -270,9 +280,18 @@ export default function JobGallery() {
                 <FlagBadge />
               </View>
             ) : null}
-            {(item.server?.commentCount ?? 0) > 0 && !selecting ? (
-              <View pointerEvents="none" style={{ position: "absolute", top: 4, left: 4, backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
-                <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>💬 {item.server?.commentCount}</Text>
+            {((item.server?.commentCount ?? 0) > 0 || (item.server?.openIssueCount ?? 0) > 0) && !selecting ? (
+              <View pointerEvents="none" style={{ position: "absolute", top: 4, left: 4, flexDirection: "row", gap: 3 }}>
+                {(item.server?.openIssueCount ?? 0) > 0 ? (
+                  <View style={{ backgroundColor: "#b45309", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
+                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>🔧 {item.server?.openIssueCount}</Text>
+                  </View>
+                ) : null}
+                {(item.server?.commentCount ?? 0) > 0 ? (
+                  <View style={{ backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
+                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>💬 {item.server?.commentCount}</Text>
+                  </View>
+                ) : null}
               </View>
             ) : null}
             <View style={{ position: "absolute", bottom: 4, left: 4 }}>

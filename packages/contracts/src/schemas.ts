@@ -174,6 +174,8 @@ export const Photo = z.object({
   lastCommentAt: z.string().nullable(),
   /** Marks drawn on the photo (not removed). */
   markupCount: z.number().int(),
+  /** Issues on this photo that aren't resolved yet ("To fix"). */
+  openIssueCount: z.number().int(),
   latitude: z.number().nullable(),
   longitude: z.number().nullable(),
   widthPx: z.number().int().nullable(),
@@ -339,6 +341,80 @@ export const PhotoMarkup = z.object({
   canRemove: z.boolean(),
 });
 export type PhotoMarkup = z.infer<typeof PhotoMarkup>;
+
+// ---------------------------------------------------------------- issues to fix (step 4)
+export const IssueParams = z.strictObject({ orgId: Uuid, issueId: Uuid });
+export const IssueStatus = z.enum(["open", "in_progress", "awaiting_review", "resolved"]);
+export type IssueStatus = z.infer<typeof IssueStatus>;
+export const CreatePhotoIssueRequest = z.strictObject({
+  clientRef: Uuid,
+  title: z.string().trim().min(1, "say what needs fixing").max(200),
+  details: z.string().trim().max(2000).nullable().optional(),
+  /** The mark on the photo this issue is about (for example, a red circle). */
+  markupId: Uuid.nullable().optional(),
+  /** Managers may assign it straight away. Reports from others go to the job's Issues list unassigned. */
+  assigneeId: Uuid.nullable().optional(),
+});
+export type CreatePhotoIssueRequest = z.infer<typeof CreatePhotoIssueRequest>;
+export const IssueAction = z.enum(["assign", "start", "submit", "approve", "send_back", "reopen", "edit"]);
+export type IssueAction = z.infer<typeof IssueAction>;
+export const IssueActionRequest = z.strictObject({
+  /** Made on the phone so the same action sent twice is only applied once. */
+  clientRef: Uuid,
+  action: IssueAction,
+  /** The status the person saw. If the issue has changed since, nothing happens and the answer says so. */
+  expectedStatus: IssueStatus.optional(),
+  note: z.string().trim().max(2000).nullable().optional(),
+  assigneeId: Uuid.nullable().optional(),
+  /** "After" photos showing the fix (on the same job). */
+  fixPhotoIds: z.array(Uuid).max(20).default([]),
+  title: z.string().trim().min(1).max(200).optional(),
+  details: z.string().trim().max(2000).nullable().optional(),
+});
+export type IssueActionRequest = z.infer<typeof IssueActionRequest>;
+export const IssueListQuery = z.strictObject({
+  /** "active" = everything not resolved yet. */
+  status: z.enum(["open", "in_progress", "awaiting_review", "resolved", "active"]).optional(),
+  assigned: z.enum(["me", "none"]).optional(),
+});
+export const PhotoIssue = z.object({
+  id: Uuid,
+  jobId: Uuid,
+  jobNumber: z.string(),
+  photoId: Uuid,
+  photoDeleted: z.boolean(),
+  markupId: Uuid.nullable(),
+  title: z.string(),
+  details: z.string().nullable(),
+  status: IssueStatus,
+  assigneeId: Uuid.nullable(),
+  assignee: z.string().nullable(),
+  createdById: Uuid,
+  createdBy: z.string(),
+  submittedBy: z.string().nullable(),
+  resolvedBy: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  /** The last thing that happened (for example "sent_back"), for showing "Sent back". */
+  lastEvent: z.string(),
+  fixPhotoIds: z.array(Uuid),
+  /** What the person asking may do. For hiding buttons only; the server decides. */
+  can: z.object({ assign: z.boolean(), start: z.boolean(), submit: z.boolean(), approve: z.boolean(), sendBack: z.boolean(), reopen: z.boolean(), edit: z.boolean() }),
+});
+export type PhotoIssue = z.infer<typeof PhotoIssue>;
+export const PhotoIssueEvent = z.object({
+  id: Uuid,
+  kind: z.string(),
+  actor: z.string(),
+  fromStatus: IssueStatus.nullable(),
+  toStatus: IssueStatus.nullable(),
+  note: z.string().nullable(),
+  assignee: z.string().nullable(),
+  photoId: Uuid.nullable(),
+  createdAt: z.string(),
+});
+export type PhotoIssueEvent = z.infer<typeof PhotoIssueEvent>;
 
 export const JobPerson = z.object({ id: Uuid, name: z.string(), avatarAt: z.string().nullable(), me: z.boolean() });
 export type JobPerson = z.infer<typeof JobPerson>;

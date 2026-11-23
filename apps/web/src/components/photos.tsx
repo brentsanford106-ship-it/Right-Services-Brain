@@ -4,10 +4,11 @@ import type { Photo } from "@rsb/contracts";
 import { api, ApiRequestError, fetchImage } from "../lib/api";
 import { useCan, useOrgId } from "../lib/hooks";
 import { CommentsPanel } from "./comments";
+import { IssuesPanel } from "./issues";
 import { MarkupEditor, MarksSvg, markNames, useMarks } from "./markup";
 import { hitTest, type MarkupShape } from "@rsb/photo-sync";
 
-export type Filter = "all" | "before" | "during" | "after" | "flagged" | "comments";
+export type Filter = "all" | "before" | "during" | "after" | "flagged" | "comments" | "issues";
 export const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "before", label: "Before" },
@@ -15,6 +16,7 @@ export const FILTERS: { value: Filter; label: string }[] = [
   { value: "after", label: "After" },
   { value: "flagged", label: "⚑ Flagged" },
   { value: "comments", label: "💬 Comments" },
+  { value: "issues", label: "🔧 To fix" },
 ];
 export const STAGES = [
   { value: "before", label: "Before" },
@@ -26,6 +28,7 @@ export function applyFilter(items: Photo[], f: Filter): Photo[] {
   if (f === "all") return items;
   if (f === "flagged") return items.filter((p) => p.flagged);
   if (f === "comments") return items.filter((p) => p.commentCount > 0);
+  if (f === "issues") return items.filter((p) => p.openIssueCount > 0);
   return items.filter((p) => p.stage === f);
 }
 
@@ -236,12 +239,17 @@ export function PhotoGrid({ items, onOpen, showJob, selected, onToggle }: { item
           <button
             onClick={() => (selected && onToggle ? onToggle(p.id) : onOpen(i))}
             aria-pressed={selected ? selected.has(p.id) : undefined}
-            aria-label={`${selected ? "Select" : "Open"} ${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}, taken by ${takenByLabel(p)}${p.flagged ? ", flagged" : ""}${p.commentCount ? `, ${p.commentCount} comment${p.commentCount === 1 ? "" : "s"}` : ""}`}
+            aria-label={`${selected ? "Select" : "Open"} ${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}, taken by ${takenByLabel(p)}${p.flagged ? ", flagged" : ""}${p.commentCount ? `, ${p.commentCount} comment${p.commentCount === 1 ? "" : "s"}` : ""}${p.openIssueCount ? `, ${p.openIssueCount} to fix` : ""}`}
           >
             {selected && <span className={`pick ${selected.has(p.id) ? "on" : ""}`} aria-hidden>{selected.has(p.id) ? "✓" : ""}</span>}
             {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content?variant=thumb`} alt="" className="thumb" /> : <div className="imgph thumb">{p.uploadStatus === "pending" ? "File not uploaded yet" : "No preview"}</div>}
             {p.flagged && <span className="flagmark" aria-hidden>⚑</span>}
-            {p.commentCount > 0 && <span className="commentmark" title={`${p.commentCount} comment${p.commentCount === 1 ? "" : "s"}`}>💬 {p.commentCount}</span>}
+            {(p.commentCount > 0 || p.openIssueCount > 0) && (
+              <span className="marksrow">
+                {p.openIssueCount > 0 && <span className="issuemark" title={`${p.openIssueCount} to fix`}>🔧 {p.openIssueCount}</span>}
+                {p.commentCount > 0 && <span className="commentmark" title={`${p.commentCount} comment${p.commentCount === 1 ? "" : "s"}`}>💬 {p.commentCount}</span>}
+              </span>
+            )}
             <PersonBadge id={p.photographerId} name={p.photographer} avatarAt={p.photographerAvatarAt} className="onthumb" />
           </button>
           <div className="meta">
@@ -414,6 +422,11 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
           </button>
         )}
         {err && <p className="error" role="alert">{err}</p>}
+        <IssuesPanel key={`i-${p.id}`} photoId={p.id} jobId={p.jobId} marks={markList}
+          aboutMark={picked ? markList.find((m) => m.id === picked) ?? null : null}
+          onShowMark={(id) => { setShowMarks(true); setPicked(id); }}
+          onOpenPhoto={(id) => { const k = items.findIndex((x) => x.id === id); if (k >= 0) onIndex(k); }}
+          onChanged={async () => { await Promise.all(invalidate.map((k) => qc.invalidateQueries({ queryKey: k }))); }} />
         <CommentsPanel key={p.id} photoId={p.id} jobId={p.jobId} marks={markList}
           aboutMark={picked ? markList.find((m) => m.id === picked) ?? null : null} onClearMark={() => setPicked(null)}
           onShowMark={(id) => { setShowMarks(true); setPicked(id); }}
