@@ -224,7 +224,7 @@ export default function Draw() {
         horizontal={false}
         scrollEnabled={tool === "move"}
       >
-        <ScrollView horizontal scrollEnabled={tool === "move"} contentContainerStyle={{ minWidth: width, alignItems: "center" }}>
+        <ScrollView horizontal scrollEnabled={tool === "move"} contentContainerStyle={{ minWidth: width, alignItems: "center", justifyContent: "center" }}>
           <View style={{ width: dispW, height: dispH }} {...pan.panHandlers} accessibilityLabel="Photo drawing area">
             <ServerImage photoId={photoId} style={{ width: dispW, height: dispH }} contain />
             <MarksLayer marks={items ?? []} w={W} h={H} width={dispW} height={dispH} preview={live} highlight={noteFor ? (items ?? []).findIndex((m) => m.key === noteFor.key) : undefined} />
