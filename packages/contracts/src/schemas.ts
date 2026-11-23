@@ -169,6 +169,9 @@ export const Photo = z.object({
   /** When the photographer last changed their profile picture; null = no picture (show initials). */
   photographerAvatarAt: z.string().nullable(),
   openFlags: z.number().int(),
+  /** Comments and replies that are not deleted. */
+  commentCount: z.number().int(),
+  lastCommentAt: z.string().nullable(),
   latitude: z.number().nullable(),
   longitude: z.number().nullable(),
   widthPx: z.number().int().nullable(),
@@ -250,6 +253,45 @@ export const PhotoSearchQuery = z
   .refine((v) => (v.lat === undefined) === (v.lng === undefined), { path: ["lng"], message: "lat and lng must be sent together" })
   .refine((v) => !v.from || !v.to || v.from <= v.to, { path: ["to"], message: "must be on or after from" });
 export type PhotoSearchQuery = z.input<typeof PhotoSearchQuery>;
+
+// ---------------------------------------------------------------- photo comments (step 2)
+export const CommentParams = z.strictObject({ orgId: Uuid, commentId: Uuid });
+export const COMMENT_MAX = 2000;
+const CommentBody = z.string().trim().min(1, "write something").max(COMMENT_MAX);
+export const CreatePhotoCommentRequest = z.strictObject({
+  /** Made on the phone so a comment sent twice (weak signal) is only saved once. */
+  clientRef: Uuid,
+  body: CommentBody,
+  /** Reply to this top-level comment. Replies are one level deep. */
+  parentId: Uuid.nullable().optional(),
+  /** People @mentioned. Each must be someone who can see the job. */
+  mentionIds: z.array(Uuid).max(20).default([]),
+});
+export type CreatePhotoCommentRequest = z.infer<typeof CreatePhotoCommentRequest>;
+export const UpdatePhotoCommentRequest = z.strictObject({ body: CommentBody, mentionIds: z.array(Uuid).max(20).default([]) });
+export type UpdatePhotoCommentRequest = z.infer<typeof UpdatePhotoCommentRequest>;
+export const PhotoComment = z.object({
+  id: Uuid,
+  photoId: Uuid,
+  parentId: Uuid.nullable(),
+  authorId: Uuid,
+  author: z.string(),
+  authorAvatarAt: z.string().nullable(),
+  /** null when the comment was deleted ("Comment deleted"). */
+  body: z.string().nullable(),
+  mentions: z.array(z.object({ id: Uuid, name: z.string() })),
+  createdAt: z.string(),
+  editedAt: z.string().nullable(),
+  deletedAt: z.string().nullable(),
+  deletedBy: z.string().nullable(),
+  mine: z.boolean(),
+  /** For hiding buttons only; the server decides. */
+  canEdit: z.boolean(),
+  canDelete: z.boolean(),
+});
+export type PhotoComment = z.infer<typeof PhotoComment>;
+export const JobPerson = z.object({ id: Uuid, name: z.string(), avatarAt: z.string().nullable(), me: z.boolean() });
+export type JobPerson = z.infer<typeof JobPerson>;
 
 export const CreatePhotoFlagRequest = z.strictObject({ reason: Text(1000) });
 export const ResolvePhotoFlagRequest = z.strictObject({ resolutionNote: OptionalText(1000) });

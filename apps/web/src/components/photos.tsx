@@ -3,14 +3,16 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Photo } from "@rsb/contracts";
 import { api, ApiRequestError, fetchImage } from "../lib/api";
 import { useCan, useOrgId } from "../lib/hooks";
+import { CommentsPanel } from "./comments";
 
-export type Filter = "all" | "before" | "during" | "after" | "flagged";
+export type Filter = "all" | "before" | "during" | "after" | "flagged" | "comments";
 export const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "before", label: "Before" },
   { value: "during", label: "During" },
   { value: "after", label: "After" },
   { value: "flagged", label: "⚑ Flagged" },
+  { value: "comments", label: "💬 Comments" },
 ];
 export const STAGES = [
   { value: "before", label: "Before" },
@@ -21,6 +23,7 @@ export const STAGES = [
 export function applyFilter(items: Photo[], f: Filter): Photo[] {
   if (f === "all") return items;
   if (f === "flagged") return items.filter((p) => p.flagged);
+  if (f === "comments") return items.filter((p) => p.commentCount > 0);
   return items.filter((p) => p.stage === f);
 }
 
@@ -231,11 +234,12 @@ export function PhotoGrid({ items, onOpen, showJob, selected, onToggle }: { item
           <button
             onClick={() => (selected && onToggle ? onToggle(p.id) : onOpen(i))}
             aria-pressed={selected ? selected.has(p.id) : undefined}
-            aria-label={`${selected ? "Select" : "Open"} ${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}, taken by ${takenByLabel(p)}${p.flagged ? ", flagged" : ""}`}
+            aria-label={`${selected ? "Select" : "Open"} ${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}, taken by ${takenByLabel(p)}${p.flagged ? ", flagged" : ""}${p.commentCount ? `, ${p.commentCount} comment${p.commentCount === 1 ? "" : "s"}` : ""}`}
           >
             {selected && <span className={`pick ${selected.has(p.id) ? "on" : ""}`} aria-hidden>{selected.has(p.id) ? "✓" : ""}</span>}
             {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content?variant=thumb`} alt="" className="thumb" /> : <div className="imgph thumb">{p.uploadStatus === "pending" ? "File not uploaded yet" : "No preview"}</div>}
             {p.flagged && <span className="flagmark" aria-hidden>⚑</span>}
+            {p.commentCount > 0 && <span className="commentmark" title={`${p.commentCount} comment${p.commentCount === 1 ? "" : "s"}`}>💬 {p.commentCount}</span>}
             <PersonBadge id={p.photographerId} name={p.photographer} avatarAt={p.photographerAvatarAt} className="onthumb" />
           </button>
           <div className="meta">
@@ -366,6 +370,7 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
           </button>
         )}
         {err && <p className="error" role="alert">{err}</p>}
+        <CommentsPanel key={p.id} photoId={p.id} jobId={p.jobId} onChanged={async () => { await Promise.all(invalidate.map((k) => qc.invalidateQueries({ queryKey: k }))); }} />
         {canExport && p.uploadStatus === "stored" && (
           <button onClick={() => void downloadPhotos(orgId, [p]).catch(() => setErr("Couldn't download this photo."))}>Download photo</button>
         )}

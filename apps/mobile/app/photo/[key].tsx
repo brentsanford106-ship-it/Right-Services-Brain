@@ -5,6 +5,7 @@ import { NOTE_MAX, type Stage } from "@rsb/photo-sync";
 import { useApp, useQueueVersion, useSyncStatus } from "../../src/state";
 import { LocalImage, PersonBadge, ServerImage, mergeGallery, type ServerPhoto } from "../../src/photos";
 import { canDeleteItem, confirmDelete, sharePhotos } from "../../src/photoActions";
+import { PhotoComments } from "../../src/comments";
 import { Button, C, Chip, DevBanner, SyncPill, STAGES, s } from "../../src/ui";
 
 /**
@@ -135,6 +136,8 @@ export default function Review() {
               <Button title="Save note" style={{ marginTop: 10 }} busy={saving} onPress={() => void saveNote()} />
             ) : null}
           </View>
+
+          <PhotoComments key={item.key} jobId={jobId} serverId={item.server?.id ?? item.local?.serverId ?? null} localId={item.local && !item.local.remoteOnly ? item.local.localId : null} />
 
           <View style={[s.card, { gap: 4 }]}>
             <Text style={s.muted}>Job: {item.local?.jobNumber ?? item.server?.jobNumber}</Text>

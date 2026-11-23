@@ -46,6 +46,8 @@ export interface PhotoApi {
   createPhoto(orgId: string, jobId: string, body: CreatePhotoBody): Promise<ServerPhoto>;
   uploadContent(orgId: string, photoId: string, bytes: Uint8Array, contentType: string): Promise<{ uploadStatus: string; duplicate: boolean }>;
   updatePhoto(orgId: string, photoId: string, body: { flagged?: boolean; note?: string | null; stage?: Stage }): Promise<ServerPhoto>;
+  /** Sends one waiting comment (see CommentOutbox). Optional so older test doubles keep working. */
+  createComment?(orgId: string, photoId: string, body: { clientRef: string; body: string; parentId?: string | null; mentionIds: string[] }): Promise<{ id: string }>;
 }
 
 export type FetchLike = (url: string, init: { method: string; headers: Record<string, string>; body?: string | Uint8Array; signal?: AbortSignal }) => Promise<{
@@ -155,6 +157,10 @@ export class HttpClient implements PhotoApi {
 
   updatePhoto(orgId: string, photoId: string, body: { flagged?: boolean; note?: string | null; stage?: Stage }): Promise<ServerPhoto> {
     return this.patch(`/v1/orgs/${orgId}/photos/${photoId}`, body);
+  }
+
+  createComment(orgId: string, photoId: string, body: { clientRef: string; body: string; parentId?: string | null; mentionIds: string[] }): Promise<{ id: string }> {
+    return this.post(`/v1/orgs/${orgId}/photos/${photoId}/comments`, body);
   }
 
   async uploadContent(orgId: string, photoId: string, bytes: Uint8Array, contentType: string) {

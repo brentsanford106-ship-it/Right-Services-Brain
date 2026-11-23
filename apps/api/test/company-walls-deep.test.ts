@@ -155,6 +155,8 @@ describe("company walls: the database rules themselves", () => {
         "membership_roles:DELETE,INSERT,SELECT,UPDATE",
         `mileage_records:${rw}`,
         "organization_memberships:SELECT", "organizations:SELECT", "permissions:SELECT",
+        // 0019: comments are add-only; only their wording and edited/deleted markers can change (column grants below).
+        "photo_comment_mentions:INSERT,SELECT", "photo_comment_revisions:INSERT,SELECT", "photo_comments:INSERT,SELECT",
         `photo_flags:${rw}`, `photos:${rw}`, `receipts:${rw}`,
         "role_permissions:DELETE,INSERT,SELECT,UPDATE", "roles:DELETE,INSERT,SELECT,UPDATE",
         "users:SELECT",
@@ -176,6 +178,10 @@ describe("company walls: the database rules themselves", () => {
         "organization_memberships.status:UPDATE",
         "organizations.deleted_photo_retention_days:UPDATE",
         "organizations.sign_in_every_days:UPDATE",
+        "photo_comments.body:UPDATE",
+        "photo_comments.deleted_at:UPDATE",
+        "photo_comments.deleted_by_membership_id:UPDATE",
+        "photo_comments.edited_at:UPDATE",
       ]);
     } finally {
       await admin.end();

@@ -81,7 +81,7 @@ export default function Login() {
           text: `Delete ${e.owner.displayName}'s photos`,
           style: "destructive",
           onPress: () =>
-            Alert.alert("Delete them for good?", `${e.owner.displayName}'s photos that haven't been sent will be deleted from this phone. They can't be recovered.`, [
+            Alert.alert("Delete them for good?", `${e.owner.displayName}'s photos and comments that haven't been sent will be deleted from this phone. They can't be recovered.`, [
               { text: "Keep them", style: "cancel" },
               { text: "Delete", style: "destructive", onPress: () => void app.signOut() },
             ]),

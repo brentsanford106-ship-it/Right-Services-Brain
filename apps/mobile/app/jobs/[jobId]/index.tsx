@@ -14,6 +14,7 @@ const FILTERS: { value: Filter; label: string }[] = [
   { value: "during", label: "During" },
   { value: "after", label: "After" },
   { value: "flagged", label: "⚑ Flagged" },
+  { value: "comments", label: "💬 Comments" },
 ];
 
 export default function JobGallery() {
@@ -253,7 +254,7 @@ export default function JobGallery() {
             onPress={() => (selecting ? toggle(item.key) : open(item))}
             onLongPress={() => (selecting ? toggle(item.key) : startSelecting(item))}
             style={{ margin: 2, width: size, height: size }}
-            accessibilityLabel={`${item.stage} photo, taken by ${item.personKey === "me" ? "you" : item.personName ?? "unknown"}${item.flagged ? ", flagged" : ""}${selecting ? (selected.has(item.key) ? ", selected" : ", not selected") : ""}`}
+            accessibilityLabel={`${item.stage} photo, taken by ${item.personKey === "me" ? "you" : item.personName ?? "unknown"}${item.flagged ? ", flagged" : ""}${item.server?.commentCount ? `, ${item.server.commentCount} comments` : ""}${selecting ? (selected.has(item.key) ? ", selected" : ", not selected") : ""}`}
           >
             {item.local && !item.local.remoteOnly ? (
               <LocalImage localId={item.local.localId} which="thumbnail" style={{ width: size, height: size, borderRadius: 6 }} />
@@ -267,6 +268,11 @@ export default function JobGallery() {
             {item.flagged ? (
               <View style={{ position: "absolute", top: 4, right: 4 }}>
                 <FlagBadge />
+              </View>
+            ) : null}
+            {(item.server?.commentCount ?? 0) > 0 && !selecting ? (
+              <View pointerEvents="none" style={{ position: "absolute", top: 4, left: 4, backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
+                <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>💬 {item.server?.commentCount}</Text>
               </View>
             ) : null}
             <View style={{ position: "absolute", bottom: 4, left: 4 }}>

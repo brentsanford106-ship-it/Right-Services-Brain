@@ -25,6 +25,8 @@ export interface ServerPhoto {
   capturedAtKnown?: boolean;
   photographerAvatarAt?: string | null;
   hasPreview: boolean;
+  /** Comments and replies (not deleted). Missing on copies saved by older app versions. */
+  commentCount?: number;
   /** Server's answer to "may I delete this?" (for hiding buttons; the server still checks). */
   canDelete?: boolean;
   latitude: number | null;
@@ -70,7 +72,7 @@ function who(sp: ServerPhoto | null, local: QueuedPhoto | null, me: Me): Pick<Ga
   return { personKey: sp.photographerId, personName: sp.photographer ?? null, personId: sp.photographerId, personAvatarAt: sp.photographerAvatarAt ?? null };
 }
 
-export type Filter = "all" | Stage | "flagged";
+export type Filter = "all" | Stage | "flagged" | "comments";
 
 export function mergeGallery(queue: PhotoQueue, jobId: string, server: ServerPhoto[], uploadingId: string | null, me: Me = { name: "", membershipId: null, avatarAt: null }): GalleryItem[] {
   const out: GalleryItem[] = [];
@@ -102,6 +104,7 @@ export function mergeGallery(queue: PhotoQueue, jobId: string, server: ServerPho
 export function applyFilter(items: GalleryItem[], f: Filter): GalleryItem[] {
   if (f === "all") return items;
   if (f === "flagged") return items.filter((i) => i.flagged);
+  if (f === "comments") return items.filter((i) => (i.server?.commentCount ?? 0) > 0);
   return items.filter((i) => i.stage === f);
 }
 

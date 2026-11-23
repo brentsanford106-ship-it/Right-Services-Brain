@@ -13,6 +13,7 @@ import {
   NetworkError,
   OwnerMismatchError,
   PhotoQueue,
+  CommentOutbox,
   SyncEngine,
   Vault,
   type FetchLike,
@@ -116,6 +117,8 @@ interface Ctx {
   session: Session | null;
   api: HttpClient;
   queue: PhotoQueue;
+  /** Comments written on this phone, waiting to be sent (encrypted, like photos). */
+  comments: CommentOutbox;
   engine: SyncEngine;
   online: boolean;
   signIn(subject: string, displayName: string): Promise<SignInResult>;
@@ -155,6 +158,16 @@ export function useQueueVersion(): number {
   );
 }
 
+/** Re-renders when the waiting-comments list changes. */
+export function useCommentsVersion(): number {
+  const { comments } = useApp();
+  const ver = useRef(0);
+  return useSyncExternalStore(
+    (cb) => comments.subscribe(() => { ver.current++; cb(); }),
+    () => ver.current,
+  );
+}
+
 export function useSyncStatus(): SyncStatus {
   const { engine } = useApp();
   return useSyncExternalStore((cb) => engine.subscribe(cb), () => engine.getStatus());
@@ -171,7 +184,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const pendingSubject = useRef<Who | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const token = useRef<{ value: string; expiresAt: number; subject: string } | null>(null);
-  const holder = useRef<{ queue: PhotoQueue; engine: SyncEngine; api: HttpClient; vault: Vault } | null>(null);
+  const holder = useRef<{ queue: PhotoQueue; comments: CommentOutbox; engine: SyncEngine; api: HttpClient; vault: Vault } | null>(null);
 
   const issueDevToken = useCallback(async (subject: string): Promise<string> => {
     let res;
@@ -243,14 +256,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const api = new HttpClient({ baseUrl: serverRef.current, getToken, fetch: fetchLike, putBytes });
     const vault = new Vault(new ExpoBlobStore(), { seal: async () => { throw new Error("not ready"); }, open: async () => { throw new Error("not ready"); } });
     const queue = new PhotoQueue(vault, { uuid: Crypto.randomUUID });
-    holder.current = { api, vault, queue, engine: new SyncEngine(queue, api) };
+    const comments = new CommentOutbox(vault, queue, { uuid: Crypto.randomUUID });
+    holder.current = { api, vault, queue, comments, engine: new SyncEngine(queue, api, { comments }) };
   }
 
   const rebuild = useCallback((cipher: ExpoCipher, base: string) => {
     const api = new HttpClient({ baseUrl: base, getToken, fetch: fetchLike, putBytes });
     const vault = new Vault(new ExpoBlobStore(), cipher);
     const queue = new PhotoQueue(vault, { uuid: Crypto.randomUUID });
-    holder.current = { api, vault, queue, engine: new SyncEngine(queue, api) };
+    const comments = new CommentOutbox(vault, queue, { uuid: Crypto.randomUUID });
+    holder.current = { api, vault, queue, comments, engine: new SyncEngine(queue, api, { comments }) };
     return holder.current;
   }, [getToken]);
 
@@ -268,6 +283,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const cipher = await ExpoCipher.load();
         const h = rebuild(cipher, serverRef.current);
         await h.queue.load();
+        await h.comments.load();
         await h.queue.pruneSynced(KEEP_SYNCED_DETAILS_MS);
         const raw = await SecureStore.getItemAsync(SESSION_KEY, OPTS);
         if (raw) {
@@ -330,6 +346,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const cipher = await ExpoCipher.load(); // fresh key for the next person
     const h = rebuild(cipher, serverRef.current);
     await h.queue.load();
+    await h.comments.load();
     force((n) => n + 1);
   }, [rebuild]);
 
@@ -353,7 +370,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const lockOut = useCallback(async () => {
     const h = holder.current;
     const unsent = h?.queue.pending().length ?? 0;
-    if (!h || unsent === 0) {
+    const unsentComments = h?.comments.all().length ?? 0;
+    if (!h || (unsent === 0 && unsentComments === 0)) {
       await wipeAll();
       setNotice("Your access to this company was turned off. Ask an owner if this is a mistake.");
       return;
@@ -370,8 +388,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     sessionRef.current = null;
     pendingSubject.current = null;
     setSession(null);
+    const what = [
+      unsent ? `${unsent} photo${unsent === 1 ? "" : "s"}` : null,
+      unsentComments ? `${unsentComments} comment${unsentComments === 1 ? "" : "s"}` : null,
+    ].filter(Boolean).join(" and ");
+    const n = unsent + unsentComments;
     setNotice(
-      `Your access to this company was turned off. ${unsent} photo${unsent === 1 ? " that hasn't" : "s that haven't"} been sent ${unsent === 1 ? "is" : "are"} kept locked on this phone. ` +
+      `Your access to this company was turned off. ${what} that ${n === 1 ? "hasn't" : "haven't"} been sent ${n === 1 ? "is" : "are"} kept locked on this phone. ` +
         "If an owner turns your access back on, sign in again and they will upload.",
     );
   }, [wipeAll]);
@@ -387,6 +410,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       online,
       api: h.api,
       queue: h.queue,
+      comments: h.comments,
       engine: h.engine,
       async setServer(url: string) {
         const clean = url.trim().replace(/\/+$/, "");
@@ -397,12 +421,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const cipher = await ExpoCipher.load();
         const nh = rebuild(cipher, clean);
         await nh.queue.load();
+        await nh.comments.load();
         force((n) => n + 1);
       },
       async signIn(subject: string, displayName: string) {
         const q = holder.current!.queue;
         const owner = q.getOwner();
-        if (owner && owner.subject !== subject && q.pending().length > 0) throw new OwnerMismatchError(owner);
+        if (owner && owner.subject !== subject && q.hasUnsent()) throw new OwnerMismatchError(owner);
         pendingSubject.current = { subject, displayName, mode: "dev" };
         token.current = null;
         await issueDevToken(subject);
@@ -416,7 +441,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const subject = "entra:" + r.subject;
         const q = holder.current!.queue;
         const owner = q.getOwner();
-        if (owner && owner.subject !== subject && q.pending().length > 0) {
+        if (owner && owner.subject !== subject && q.hasUnsent()) {
           await entra.forget();
           throw new OwnerMismatchError(owner);
         }

@@ -8,7 +8,7 @@ It is built in six steps, each its own pull request, tested on a real iPhone bef
 | --- | --- | --- |
 | 1a | Who took it: photographer kept separate from uploader, initials on thumbnails, People filter (several people, Photos I took), sort, small gallery thumbnails | Built and tested automatically, **not yet tested on an iPhone** |
 | 1b | Profile pictures, importing photos from the phone's library | Built and tested automatically, **not yet tested on an iPhone** |
-| 2 | Comments and replies, @mentions, edit history, offline | Not started |
+| 2 | Comments and replies, @mentions, edit history, offline | Built and tested automatically, **not yet tested on an iPhone** |
 | 3 | Markup (circle, arrow, pen, box, text, pin), show/hide, zoom | Not started |
 | 4 | Issues: assign, In Progress, follow-up photo, send for review, approve, send back, reopen, job Issues tab, To Fix list, employee Report issue | Not started |
 | 5 | In-app alerts, per-person alert settings, offline polish, sharing an annotated copy | Not started |
@@ -70,3 +70,35 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
 | Reading "date taken" from photo details | Real, tested (`packages/photo-sync/test/exif.test.ts`) |
 | Website profile picture in Settings and on thumbnails | Real, tested in a simulated browser |
 | Phone screens (Library button, profile picture, pictures on thumbnails) | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |
+
+## Step 2: comments and replies
+
+**How it works**
+
+- Tables `photo_comments`, `photo_comment_revisions` and `photo_comment_mentions` (migration `0019_photo_comments.sql`), behind the same company walls as photos.
+- Anyone who can see a photo (through its job) can read its comments. Writing needs **photo_comments.create** ("Comment on photos and reply to comments"), on for Owner, Manager and Employee by default.
+- Replies are one level deep and always on the same photo. The database refuses anything else.
+- **@mentions:** only people who can see the job (everyone with "see every job", plus people assigned to it). Suspended and removed people can't be mentioned. Mentions are recorded now. Alerts for them come in step 5.
+- **Editing:** only the person who wrote a comment. Every earlier wording is kept in `photo_comment_revisions`, written by the database itself, and the comment shows "edited". A mention added while editing is recorded. A mention removed while editing stays recorded, because mentions are add-only.
+- **Deleting:** people delete their own. **photo_comments.moderate** (Owner by default) lets someone delete anyone's comment. A deleted comment shows "Comment deleted by ..." and its wording is hidden, but the wording stays in the database for the record.
+- Who wrote a comment, which photo it is on and what it replies to can't be changed: the app's database login may only change the wording and the edited/deleted markers.
+- The activity log records each comment added, edited and deleted (who, which photo, by a moderator or not), but never the wording.
+- "Delete forever" of a photo also removes its comments, earlier wordings and mentions.
+- Photos now carry `commentCount` and `lastCommentAt`.
+- **Website:** 💬 count on thumbnails, a **💬 Comments** filter chip, and a Comments section in the photo viewer (reply, edit, delete, "@ Mention…" picker).
+- **Phone:** 💬 count on thumbnails, a **💬 Comments** filter chip, and a Comments section on the photo screen (reply, edit, delete, "@ Mention" chips).
+- **Offline on the phone:** new comments and replies are saved encrypted on the phone and sent by the sync queue, with a phone-made id so a resend never makes a second copy. A comment on a photo that hasn't uploaded yet waits for the photo. A reply to a waiting comment waits for it. If the server refuses one (for example, the photo was deleted), it stays on the phone marked "not sent" with **Try again** and **Discard**. It is never dropped silently. The last comments seen are kept (encrypted) so they can be read without signal. Editing and deleting need a connection.
+- Waiting comments are protected like waiting photos: another person can't sign in on that phone until they're sent, and a suspended person's waiting comments are kept locked on the phone.
+
+**Real vs simulated**
+
+| Part | State |
+| --- | --- |
+| Tables, walls, one-level replies, edit history, locked authorship, purge | Real, tested against PostgreSQL |
+| API: add, reply, mentions, edit, delete, moderation, permission switch, walls | Real, tested over HTTP (`apps/api/test/photo-comments.test.ts`, 9 tests) |
+| Website comments panel, filter and badge | Real, tested in a simulated browser (`apps/web/src/App.test.tsx`) |
+| Phone offline comment queue (encrypted, restart-safe, resend-safe, waits for photo or parent) | Real, tested (`packages/photo-sync/test/comments.test.ts`, 7 tests) |
+| Phone screens (comments section, filter, badge) | Type-checked and the iPhone app bundle builds. **Not yet tried on an iPhone.** |
+| Alerts when someone mentions you or replies | Not built yet (step 5). |
+| Comments on a markup shape | Comes with markup (step 3). |
+

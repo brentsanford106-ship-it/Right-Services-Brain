@@ -100,7 +100,7 @@ export function syncStateOf(p: QueuedPhoto, uploadingId: string | null): SyncSta
 
 export class OwnerMismatchError extends Error {
   constructor(public readonly owner: OwnerInfo) {
-    super(`This phone has photos from ${owner.displayName} that have not uploaded yet.`);
+    super(`This phone has photos or comments from ${owner.displayName} that have not been sent yet.`);
     this.name = "OwnerMismatchError";
   }
 }
@@ -115,6 +115,8 @@ export class PhotoQueue {
   private chain: Promise<unknown> = Promise.resolve();
   private listeners = new Set<() => void>();
   private owner: OwnerInfo | null = null;
+  private unsentChecks: (() => boolean)[] = [];
+  private wipeListeners: (() => void)[] = [];
 
   constructor(
     private readonly vault: Vault,
@@ -130,6 +132,21 @@ export class PhotoQueue {
     const run = this.chain.then(fn, fn);
     this.chain = run.catch(() => undefined);
     return run;
+  }
+
+  /** Other things kept in the same offline store (e.g. unsent comments) that must also block a switch of person. */
+  addUnsentCheck(fn: () => boolean): void {
+    this.unsentChecks.push(fn);
+  }
+
+  /** Anything on this phone still waiting to reach the server (photos, edits, or e.g. comments)? */
+  hasUnsent(): boolean {
+    return this.pending().length > 0 || this.unsentChecks.some((f) => f());
+  }
+
+  /** Called after the offline store was emptied (sign-out, account removed, another person signed in). */
+  onWipe(fn: () => void): void {
+    this.wipeListeners.push(fn);
   }
 
   subscribe(fn: () => void): () => void {
@@ -176,9 +193,10 @@ export class PhotoQueue {
     return this.exclusive(async () => {
       if (this.owner && this.owner.subject !== owner.subject) {
         const unsynced = [...this.items.values()].some((p) => !(p.recorded && p.stored && !p.dirty));
-        if (unsynced) throw new OwnerMismatchError(this.owner);
+        if (unsynced || this.unsentChecks.some((f) => f())) throw new OwnerMismatchError(this.owner);
         await this.vault.wipe();
         this.items.clear();
+        for (const f of this.wipeListeners) f();
       }
       this.owner = owner;
       await this.vault.putJson("owner", owner);
@@ -405,6 +423,7 @@ export class PhotoQueue {
       await this.vault.wipe();
       this.items.clear();
       this.owner = null;
+      for (const f of this.wipeListeners) f();
       this.emit();
     });
   }

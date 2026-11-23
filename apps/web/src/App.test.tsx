@@ -148,4 +148,51 @@ describe("web dashboard", () => {
     expect(await screen.findByText("Imported from a photo library")).toBeTruthy();
     expect(screen.getByText("Uploaded by")).toBeTruthy();
   });
+  it("comments: count badge and filter, read and reply, @mention, and deleted comments show as deleted", async () => {
+    session.set("x.y.z");
+    const org = { organization: { id: "o", name: "Demo Co", slug: "demo" }, membershipId: "m", roles: ["manager"], permissions: ["org.read", "jobs.read_all", "photo_comments.create"] };
+    const job = { id: "j1", jobNumber: "HP-1001", title: "Pump island (DEMO)", status: "active", siteName: null, siteAddress: null, customerName: null, scheduledStart: null, scheduledEnd: null, assignees: null };
+    const base = { jobId: "j1", jobNumber: "HP-1001", siteName: null, stage: "during", note: null, flagged: false, flaggedAt: null, uploadStatus: "stored", openFlags: 0, latitude: null, longitude: null, widthPx: 10, heightPx: 10, hasPreview: true, storedAt: null, captureSource: "in_app_camera", uploadedByMe: false, canDelete: false, capturedAtKnown: true, photographerAvatarAt: null, photographerId: "eli", photographer: "Eli Employee", uploadedBy: "Eli Employee", takenByMe: false, lastCommentAt: null };
+    const photos = [
+      { ...base, id: "p1", capturedAt: "2026-11-10T09:00:00Z", commentCount: 2 },
+      { ...base, id: "p2", capturedAt: "2026-11-10T10:00:00Z", commentCount: 0 },
+    ];
+    const c = { photoId: "p1", authorAvatarAt: null, mentions: [], editedAt: null, deletedAt: null, deletedBy: null, canEdit: false, canDelete: false, mine: false };
+    const comments = [
+      { ...c, id: "c1", parentId: null, authorId: "eli", author: "Eli Employee", body: "Strap is loose here", createdAt: "2026-11-10T09:05:00Z" },
+      { ...c, id: "c2", parentId: "c1", authorId: "m", author: "Morgan Manager", body: null, createdAt: "2026-11-10T09:06:00Z", deletedAt: "2026-11-10T09:07:00Z", deletedBy: "Morgan Manager" },
+    ];
+    const posts: unknown[] = [];
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.includes("/content") || url.endsWith("/avatar")) return new Response("img", { status: 200 });
+      if (url.endsWith("/photos/p1/comments") && init?.method === "POST") {
+        posts.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ ...c, id: "c3", parentId: "c1", authorId: "m", author: "Morgan Manager", body: "Fixed", createdAt: "2026-11-10T09:10:00Z" }), { status: 201 });
+      }
+      if (url.endsWith("/photos/p1/comments")) return new Response(JSON.stringify({ items: comments }), { status: 200 });
+      if (url.endsWith("/jobs/j1/people")) return new Response(JSON.stringify({ items: [{ id: "eli", name: "Eli Employee", avatarAt: null, me: false }, { id: "m", name: "Morgan Manager", avatarAt: null, me: true }] }), { status: 200 });
+      if (url.endsWith("/jobs/j1/photos")) return new Response(JSON.stringify({ items: photos }), { status: 200 });
+      if (url.endsWith("/jobs/j1")) return new Response(JSON.stringify(job), { status: 200 });
+      return new Response(JSON.stringify(org), { status: 200 });
+    }));
+    renderApp("/orgs/o/jobs/j1");
+    expect(await screen.findByTitle("2 comments")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Comments/ }));
+    expect(screen.getAllByRole("button", { name: /Open .* photo/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /2 comments/ }));
+    expect(await screen.findByText("Strap is loose here")).toBeTruthy();
+    expect(screen.getByText(/Comment deleted by Morgan Manager/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const box = screen.getByRole("textbox", { name: "Reply to Eli Employee" });
+    fireEvent.change(box, { target: { value: "Fixed" } });
+    // The mention list shows the people on the job (not yourself), and picking one adds @Name.
+    await waitFor(() => expect(screen.getAllByRole("option", { name: "Eli Employee" }).length).toBeGreaterThan(0));
+    expect(screen.queryAllByRole("option", { name: "Morgan Manager" })).toHaveLength(0);
+    fireEvent.change(screen.getAllByRole("combobox", { name: "Mention someone" })[0]!, { target: { value: "eli" } });
+    expect((box as HTMLTextAreaElement).value).toBe("Fixed @Eli Employee ");
+    fireEvent.click(screen.getAllByRole("button", { name: "Send" })[0]!);
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({ body: "Fixed @Eli Employee", parentId: "c1", mentionIds: ["eli"] });
+  });
 });

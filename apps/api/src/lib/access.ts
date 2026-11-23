@@ -48,3 +48,20 @@ export async function assertVehicleAccess(tx: Tx, ctx: OrgContext, vehicleId: st
   );
   if (!rowCount) throw notFound();
 }
+
+/**
+ * Active people in the current company who can see one job (everyone with "see every job", plus people with
+ * "see jobs they're assigned to" who are assigned to it). Used for @mentions. $1 = company id, $2 = job id.
+ * The company filter is explicit because people can always read their own memberships in other companies.
+ */
+export const JOB_PEOPLE_SQL = `
+  SELECT m.id, u.display_name AS name, m.avatar_updated_at
+    FROM organization_memberships m
+    JOIN users u ON u.id = m.user_id AND u.status = 'active'
+   WHERE m.organization_id = $1 AND m.status = 'active'
+     AND (EXISTS (SELECT 1 FROM membership_roles mr JOIN role_permissions rp ON rp.organization_id = mr.organization_id AND rp.role_id = mr.role_id
+                   WHERE mr.organization_id = m.organization_id AND mr.membership_id = m.id AND rp.permission_key = 'jobs.read_all')
+          OR (EXISTS (SELECT 1 FROM membership_roles mr JOIN role_permissions rp ON rp.organization_id = mr.organization_id AND rp.role_id = mr.role_id
+                       WHERE mr.organization_id = m.organization_id AND mr.membership_id = m.id AND rp.permission_key = 'jobs.read_assigned')
+              AND EXISTS (SELECT 1 FROM job_assignments ja
+                           WHERE ja.organization_id = m.organization_id AND ja.job_id = $2 AND ja.membership_id = m.id AND ja.ended_at IS NULL)))`;

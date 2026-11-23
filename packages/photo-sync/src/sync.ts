@@ -1,5 +1,6 @@
 import { ApiError, NetworkError, type CreatePhotoBody, type PhotoApi, type ServerPhoto } from "./api";
 import type { PhotoQueue, QueuedPhoto } from "./queue";
+import type { CommentOutbox } from "./comments";
 
 export type StopReason = "offline" | "sign_in_required" | null;
 
@@ -56,7 +57,7 @@ export class SyncEngine {
   constructor(
     private readonly queue: PhotoQueue,
     private readonly api: PhotoApi,
-    private readonly opts: { now?: () => number; random?: () => number; keepSyncedOriginals?: boolean } = {},
+    private readonly opts: { now?: () => number; random?: () => number; keepSyncedOriginals?: boolean; comments?: CommentOutbox } = {},
   ) {}
 
   private now(): number {
@@ -129,6 +130,12 @@ export class SyncEngine {
           const msg = e instanceof Error ? e.message : "Unexpected error.";
           await this.queue.update(item.localId, (p) => ({ ...p, needsAttention: true, lastError: msg, attempts: p.attempts + 1 }));
         }
+      }
+      // Then waiting comments (after photos, so a comment on a photo that just uploaded goes in the same run).
+      const api = this.api;
+      if (stoppedBecause === null && this.opts.comments && api.createComment) {
+        const r = await this.opts.comments.flush({ createComment: (o, p, b) => api.createComment!(o, p, b) }, force);
+        stoppedBecause = r.stoppedBecause;
       }
     } finally {
       this.set({ running: false, uploadingId: null, lastRunAt: this.now(), lastStop: stoppedBecause });

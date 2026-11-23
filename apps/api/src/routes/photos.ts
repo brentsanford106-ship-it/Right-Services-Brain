@@ -49,6 +49,8 @@ interface PhotoRow {
   captured_at_known: boolean;
   photographer_avatar_at: Date | null;
   open_flags: number;
+  comment_count: number;
+  last_comment_at: Date | null;
   latitude: number | null;
   longitude: number | null;
   width_px: number | null;
@@ -61,7 +63,9 @@ const PHOTO_SELECT = `SELECT p.id, p.job_id, j.job_number, j.site_name, p.stage,
                              p.photographer_membership_id, pu.display_name AS photographer, p.capture_source, p.captured_at_known,
                              pm.avatar_updated_at AS photographer_avatar_at, p.latitude, p.longitude, p.width_px, p.height_px,
                              (p.preview_storage_key IS NOT NULL) AS has_preview,
-                             (SELECT count(*)::int FROM photo_flags f WHERE f.organization_id = p.organization_id AND f.photo_id = p.id AND f.status = 'open') AS open_flags
+                             (SELECT count(*)::int FROM photo_flags f WHERE f.organization_id = p.organization_id AND f.photo_id = p.id AND f.status = 'open') AS open_flags,
+                             (SELECT count(*)::int FROM photo_comments c WHERE c.organization_id = p.organization_id AND c.photo_id = p.id AND c.deleted_at IS NULL) AS comment_count,
+                             (SELECT max(c.created_at) FROM photo_comments c WHERE c.organization_id = p.organization_id AND c.photo_id = p.id AND c.deleted_at IS NULL) AS last_comment_at
                         FROM photos p
                         JOIN jobs j ON j.organization_id = p.organization_id AND j.id = p.job_id
                         JOIN organization_memberships m ON m.organization_id = p.organization_id AND m.id = p.uploaded_by_membership_id
@@ -94,6 +98,8 @@ const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
   capturedAtKnown: r.captured_at_known,
   photographerAvatarAt: r.photographer_avatar_at?.toISOString() ?? null,
   openFlags: r.open_flags,
+  commentCount: r.comment_count,
+  lastCommentAt: r.last_comment_at?.toISOString() ?? null,
   latitude: r.latitude,
   longitude: r.longitude,
   widthPx: r.width_px,
@@ -106,7 +112,7 @@ const toPhoto = (r: PhotoRow, ctx: OrgContext): Photo => ({
 export const thumbKeyFor = (previewKey: string) => previewKey.replace(/\/preview$/, "/thumb");
 
 /** Loads a photo the caller is allowed to see (via its job), or throws 404. */
-async function loadVisiblePhoto(tx: Tx, ctx: OrgContext, photoId: string, includeDeleted = false) {
+export async function loadVisiblePhoto(tx: Tx, ctx: OrgContext, photoId: string, includeDeleted = false) {
   const { rows } = await tx.query<{
     job_id: string; uploaded_by_membership_id: string; upload_status: string; content_type: string;
     storage_key: string | null; preview_storage_key: string | null; original_sha256: string | null;
