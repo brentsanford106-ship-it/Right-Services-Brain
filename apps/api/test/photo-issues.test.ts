@@ -96,6 +96,23 @@ describe("issues to fix", () => {
     expect(re.body).toMatchObject({ status: "open", resolvedBy: null, resolvedAt: null, lastEvent: "reopened" });
   });
 
+  it("after a fix is sent back, the issue shows the newest fix's Before and After, not the one that was sent back", async () => {
+    const photo = await newPhoto();
+    const id = (await report("dev-morgan-manager", photo, { assigneeId: ELI })).body.id;
+    const oldBefore = await newPhoto();
+    const oldAfter = await newPhoto("dev-eli-employee", hp1001, "after");
+    expect((await act("dev-eli-employee", id, "submit", { fixPhotoIds: [oldAfter], beforePhotoId: oldBefore })).body)
+      .toMatchObject({ fixPhotoIds: [oldAfter, oldBefore], fixPhotoRoles: ["after", "before"] });
+    await act("dev-morgan-manager", id, "send_back", { note: "Still loose" });
+    // Second try with only an After photo: no Before box from the first try leaks in.
+    const newAfter = await newPhoto("dev-eli-employee", hp1001, "after");
+    const s = await act("dev-eli-employee", id, "submit", { fixPhotoIds: [newAfter] });
+    expect(s.body).toMatchObject({ status: "awaiting_review", fixPhotoIds: [newAfter], fixPhotoRoles: ["after"] });
+    // The history still records every fix photo ever sent.
+    const h = await t.as("dev-morgan-manager").get(`${A}/photo-issues/${id}`);
+    expect(h.body.history.filter((e: { kind: string }) => e.kind === "fix_photo_added")).toHaveLength(3);
+  });
+
   it("nobody approves their own fix, except an issue they assigned to themselves", async () => {
     const photo = await newPhoto();
     // Avery assigns Morgan; Morgan (a manager) fixes it and can't approve it.

@@ -237,7 +237,9 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
     const c = cameraFor.current;
     if (!c) return;
     cameraFor.current = null;
-    const taken = app.queue.forJob(i.jobId).filter((q) => q.stage === c.stage && q.capturedAt >= c.since);
+    // Any photo taken there counts, even if the person changed the Before/During/After switch in the camera
+    // (any photo may go in either box).
+    const taken = app.queue.forJob(i.jobId).filter((q) => q.capturedAt >= c.since);
     const newest = taken[taken.length - 1];
     if (newest) setSlot(c.stage, { localId: newest.localId, serverId: null });
   }, [app, i.jobId])); // eslint-disable-line react-hooks/exhaustive-deps
