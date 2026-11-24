@@ -155,7 +155,11 @@ export function IssueCard({ issue, onChanged, onOpenPhoto, markName, onShowMark,
           {picking && (
             <>
               <div className="label">Choose the {picking === "before" ? "Before" : "After"} photo{(picking === "before" ? before : after) ? <> · <button className="link small" onClick={() => { (picking === "before" ? setBefore : setAfter)(null); }}>Remove it</button></> : null}</div>
-              <FixPhotoPicker jobId={i.jobId} exclude={i.photoId} stage={picking} onPick={(id) => { (picking === "before" ? setBefore : setAfter)(id); setPicking(picking === "before" && !after ? "after" : null); }} />
+              <FixPhotoPicker jobId={i.jobId} exclude={i.photoId} stage={picking} onPick={(id) => {
+                // One photo can't be both: picking the photo that's already in the other box moves it here.
+                if (picking === "before" && id === after) setAfter(null);
+                if (picking === "after" && id === before) setBefore(null);
+                (picking === "before" ? setBefore : setAfter)(id); setPicking(picking === "before" && (!after || id === after) ? "after" : null); }} />
             </>
           )}
           <textarea aria-label="Note about the fix" rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What did you do? (optional)" />

@@ -58,13 +58,19 @@ const ISSUE_SELECT = `
          i.submitted_by_membership_id, su.display_name AS submitted_by, ru.display_name AS resolved_by, i.resolved_at, i.created_at, i.updated_at,
          (SELECT e.kind FROM photo_issue_events e WHERE e.organization_id = i.organization_id AND e.issue_id = i.id AND e.kind <> 'fix_photo_added'
            ORDER BY e.created_at DESC LIMIT 1) AS last_event,
-         (SELECT array_agg(e.photo_id ORDER BY e.created_at) FROM photo_issue_events e
-           JOIN photos fp ON fp.organization_id = e.organization_id AND fp.id = e.photo_id AND fp.deleted_at IS NULL
-           WHERE e.organization_id = i.organization_id AND e.issue_id = i.id AND e.kind = 'fix_photo_added') AS fix_photo_ids,
-         (SELECT array_agg(COALESCE(e.photo_role, 'after') ORDER BY e.created_at) FROM photo_issue_events e
-           JOIN photos fp ON fp.organization_id = e.organization_id AND fp.id = e.photo_id AND fp.deleted_at IS NULL
-           WHERE e.organization_id = i.organization_id AND e.issue_id = i.id AND e.kind = 'fix_photo_added') AS fix_photo_roles
+         fx.fix_photo_ids, fx.fix_photo_roles
     FROM photo_issues i
+    -- The Before/After photos of the latest fix sent for review only (a fix that was sent back stays in the history,
+    -- but its photos no longer show as "the fix"). A fix's photos are written right after its "submitted" event.
+    LEFT JOIN LATERAL (
+      SELECT array_agg(e.photo_id ORDER BY e.created_at, e.id) AS fix_photo_ids,
+             array_agg(COALESCE(e.photo_role, 'after') ORDER BY e.created_at, e.id) AS fix_photo_roles
+        FROM photo_issue_events e
+        JOIN photos fp ON fp.organization_id = e.organization_id AND fp.id = e.photo_id AND fp.deleted_at IS NULL
+       WHERE e.organization_id = i.organization_id AND e.issue_id = i.id AND e.kind = 'fix_photo_added'
+         AND e.created_at >= COALESCE((SELECT max(se.created_at) FROM photo_issue_events se
+                                        WHERE se.organization_id = i.organization_id AND se.issue_id = i.id AND se.kind = 'submitted'), '-infinity')
+    ) fx ON true
     JOIN jobs j ON j.organization_id = i.organization_id AND j.id = i.job_id
     JOIN photos p ON p.organization_id = i.organization_id AND p.id = i.photo_id
     JOIN organization_memberships cm ON cm.organization_id = i.organization_id AND cm.id = i.created_by_membership_id
