@@ -43,6 +43,7 @@ Test file: `apps/api/test/e2e-acceptance.test.ts`. It runs the iPhone app's real
 - Jobs with search, create and edit.
 - Job gallery with the same filters, upload status, notes, and a full-screen viewer (arrow keys, flag/unflag, note, stage, download full-resolution original for allowed roles).
 - Find photos by job number, site, date range, or distance from a location.
+- Auto-refresh (JB, 2026-11-24): every page re-checks the lists it is showing every 30 seconds, so photos, issues, comments and alerts added from a phone appear without pressing F5. It pauses while the tab is hidden or minimized and refreshes as soon as you come back. Photo files are not downloaded again, only new ones. Load: one signed-in page makes about 2 to 8 small requests every 30 seconds (measured 9 requests in 33 seconds on a job gallery, including the new photo), so even 100 people with the website open at once is roughly 15 requests a second, well within one small server. Settings: `apps/web/src/lib/queryClient.ts`. Real, tested (`apps/web/src/lib/queryClient.test.tsx`) and checked in a browser.
 
 **Server** (`apps/api`)
 - Photo flag/unflag, notes, stage changes (PATCH), with audit log entries that do not contain note text.
