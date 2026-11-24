@@ -13,7 +13,7 @@ services:
     volumes:
       - rsb-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-rsb_admin}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-rsb_admin} -d ${POSTGRES_DB:-rsb_dev}"]
       interval: 5s
       timeout: 3s
       retries: 20
