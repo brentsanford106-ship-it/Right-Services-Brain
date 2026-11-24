@@ -16,7 +16,7 @@ function useAlerts() {
   const navigate = useNavigate();
   const key = [orgId, "alerts"];
   // Checked every minute while the page is open (in-app alerts; no push messages yet).
-  const q = useQuery({ queryKey: key, queryFn: () => api<List>(`/v1/orgs/${orgId}/notifications?limit=30`), refetchInterval: 60_000 });
+  const q = useQuery({ queryKey: key, queryFn: () => api<List>(`/v1/orgs/${orgId}/notifications?limit=30`) });
   const read = useMutation({
     mutationFn: (body: { ids?: string[]; all?: boolean }) => api<{ unreadCount: number }>(`/v1/orgs/${orgId}/notifications/read`, { method: "POST", body }),
     onSuccess: () => qc.invalidateQueries({ queryKey: key }),

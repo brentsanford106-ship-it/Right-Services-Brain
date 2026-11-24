@@ -20,6 +20,7 @@ function useJobPeople(jobId: string, enabled = true) {
     queryKey: [orgId, "job-people", jobId],
     queryFn: () => api<{ items: JobPerson[] }>(`/v1/orgs/${orgId}/jobs/${jobId}/people`),
     staleTime: 60_000,
+    refetchInterval: false, // the job's people rarely change; no need to re-check every 30 s
     enabled,
   });
 }
