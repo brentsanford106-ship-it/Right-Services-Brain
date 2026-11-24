@@ -305,6 +305,9 @@ describe("web dashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open the photo" }));
     const viewer = await screen.findByRole("dialog");
     await waitFor(() => expect(viewer.querySelectorAll("[data-testid=issue]").length).toBe(1));
+    // The fix shows as a Before box (the problem photo) next to an After box (the fix photo).
+    expect(viewer.querySelector("[aria-label='Before photo']")).toBeTruthy();
+    expect(viewer.querySelector("[aria-label='After photo']")).toBeTruthy();
     const sendBack = Array.from(viewer.querySelectorAll("button")).find((b) => b.textContent === "Send back")!;
     fireEvent.click(sendBack);
     // Sending back needs a note.

@@ -16,15 +16,25 @@ const MORGAN = "00000000-0000-4b00-8000-00000000a002";
 const ELI = "00000000-0000-4b00-8000-00000000a003";
 const EZRA = "00000000-0000-4b00-8000-00000000a004";
 
-async function newPhoto(who = "dev-eli-employee", job: string = hp1001) {
-  const r = await t.as(who).post(`${A}/jobs/${job}/photos`, { clientRef: uuid(), stage: "during", capturedAt: "2026-11-12T10:00:00Z", contentType: "image/jpeg" });
+async function newPhoto(who = "dev-eli-employee", job: string = hp1001, stage = "during") {
+  const r = await t.as(who).post(`${A}/jobs/${job}/photos`, { clientRef: uuid(), stage, capturedAt: "2026-11-12T10:00:00Z", contentType: "image/jpeg" });
   expect(r.status).toBe(201);
   return r.body.id as string;
 }
 const report = (who: string, photo: string, body: Record<string, unknown> = {}) =>
   t.as(who).post(`${A}/photos/${photo}/issues`, { clientRef: uuid(), title: "Conduit strap loose", ...body });
-const act = (who: string, issue: string, action: string, body: Record<string, unknown> = {}) =>
-  t.as(who).post(`${A}/photo-issues/${issue}/actions`, { clientRef: uuid(), action, ...body });
+// Sending a fix needs an "After" photo: when a test doesn't give one, the person takes one on the issue's job first.
+async function act(who: string, issue: string, action: string, body: Record<string, unknown> = {}) {
+  if (action === "submit" && !("fixPhotoIds" in body)) {
+    const g = await t.as(who).get(`${A}/photo-issues/${issue}`);
+    const jobId = g.body.issue?.jobId ?? g.body.jobId;
+    if (jobId) {
+      const p = await t.as(who).post(`${A}/jobs/${jobId}/photos`, { clientRef: uuid(), stage: "after", capturedAt: "2026-11-12T11:00:00Z", contentType: "image/jpeg" });
+      if (p.status === 201) body = { ...body, fixPhotoIds: [p.body.id] };
+    }
+  }
+  return t.as(who).post(`${A}/photo-issues/${issue}/actions`, { clientRef: uuid(), action, ...body });
+}
 
 describe("issues to fix", () => {
   it("the whole loop: manager assigns, employee starts and sends a fix photo, manager approves; history is kept", async () => {
@@ -41,16 +51,22 @@ describe("issues to fix", () => {
     expect(mine.body.items.find((i: { id: string }) => i.id === id).can).toMatchObject({ start: true, submit: true, approve: false });
 
     expect((await act("dev-eli-employee", id, "start")).body.status).toBe("in_progress");
-    const fix = await newPhoto();
-    const s = await act("dev-eli-employee", id, "submit", { note: "Re-strapped it", fixPhotoIds: [fix], expectedStatus: "in_progress" });
+    // An After photo is required; a Before photo is optional. Each comes back with its stage for the Before / After boxes.
+    const before = await newPhoto("dev-eli-employee", hp1001, "before");
+    const noAfter = await act("dev-eli-employee", id, "submit", { fixPhotoIds: [before], expectedStatus: "in_progress" });
+    expect(noAfter.status).toBe(400);
+    expect(noAfter.body.error.message).toMatch(/Add an After photo/);
+    expect((await act("dev-eli-employee", id, "submit", { fixPhotoIds: [], expectedStatus: "in_progress" })).status).toBe(400);
+    const fix = await newPhoto("dev-eli-employee", hp1001, "after");
+    const s = await act("dev-eli-employee", id, "submit", { note: "Re-strapped it", fixPhotoIds: [fix, before], expectedStatus: "in_progress" });
     expect(s.status).toBe(200);
-    expect(s.body).toMatchObject({ status: "awaiting_review", submittedBy: "Eli Employee", fixPhotoIds: [fix] });
+    expect(s.body).toMatchObject({ status: "awaiting_review", submittedBy: "Eli Employee", fixPhotoIds: [fix, before], fixPhotoStages: ["after", "before"] });
     expect((await act("dev-eli-employee", id, "approve")).status).toBe(403); // employees can't approve
     const ok = await act("dev-morgan-manager", id, "approve");
     expect(ok.body).toMatchObject({ status: "resolved", resolvedBy: "Morgan Manager" });
 
     const h = await t.as("dev-eli-employee").get(`${A}/photo-issues/${id}`);
-    expect(h.body.history.map((e: { kind: string }) => e.kind)).toEqual(["reported", "assigned", "started", "submitted", "fix_photo_added", "approved"]);
+    expect(h.body.history.map((e: { kind: string }) => e.kind)).toEqual(["reported", "assigned", "started", "submitted", "fix_photo_added", "fix_photo_added", "approved"]);
     expect(h.body.history.find((e: { kind: string }) => e.kind === "submitted")).toMatchObject({ actor: "Eli Employee", note: "Re-strapped it", fromStatus: "in_progress", toStatus: "awaiting_review" });
   });
 

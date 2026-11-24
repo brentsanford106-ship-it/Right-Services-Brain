@@ -28,32 +28,46 @@ export function IssueStatusBadge({ issue }: { issue: Pick<PhotoIssue, "status" |
   return <span className={`istatus ${issue.status} ${issue.lastEvent === "sent_back" && issue.status === "open" ? "sentback" : ""}`}>{issueStatusText(issue)}</span>;
 }
 
-/** Fix photos chosen from the same job (an "After" photo showing the work is done). */
-function FixPhotoPicker({ jobId, exclude, chosen, onChange }: { jobId: string; exclude: string; chosen: string[]; onChange: (ids: string[]) => void }) {
+/** Choose one photo from the same job for the Before or After box of a fix. */
+function FixPhotoPicker({ jobId, exclude, stage, onPick }: { jobId: string; exclude: string; stage: "before" | "after"; onPick: (id: string) => void }) {
   const orgId = useOrgId();
   const photos = useQuery({
     queryKey: [orgId, "jobPhotos", `/jobs/${jobId}/photos`],
     queryFn: () => api<{ items: Photo[] }>(`/v1/orgs/${orgId}/jobs/${jobId}/photos`),
   });
-  const items = (photos.data?.items ?? []).filter((p) => p.id !== exclude).sort((a, b) => b.capturedAt.localeCompare(a.capturedAt));
+  // Photos of the matching stage first, newest first.
+  const items = (photos.data?.items ?? []).filter((p) => p.id !== exclude && p.uploadStatus === "stored")
+    .sort((a, b) => Number(b.stage === stage) - Number(a.stage === stage) || b.capturedAt.localeCompare(a.capturedAt));
   if (photos.isLoading) return <p className="muted small">Loading the job's photos…</p>;
-  if (!items.length) return <p className="muted small">No other photos on this job yet. Take an "After" photo of the fix on the phone, then choose it here.</p>;
+  if (!items.length) return <p className="muted small">No photos on this job yet. Take one on the phone (choose {stageLabel(stage)}), then pick it here.</p>;
   return (
-    <ul className="fixpick" aria-label="Choose fix photos">
-      {items.slice(0, 60).map((p) => {
-        const on = chosen.includes(p.id);
-        return (
-          <li key={p.id}>
-            <button className={on ? "on" : ""} aria-pressed={on} aria-label={`${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}`}
-              onClick={() => onChange(on ? chosen.filter((x) => x !== p.id) : [...chosen, p.id].slice(0, 20))}>
-              {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content?variant=thumb`} alt="" className="thumb" /> : <div className="imgph thumb">No preview</div>}
-              <span className="small">{stageLabel(p.stage)}{on ? " ✓" : ""}</span>
-            </button>
-          </li>
-        );
-      })}
+    <ul className="fixpick" aria-label={`Choose the ${stageLabel(stage)} photo`}>
+      {items.slice(0, 60).map((p) => (
+        <li key={p.id}>
+          <button aria-label={`${stageLabel(p.stage)} photo from ${new Date(p.capturedAt).toLocaleString()}`} onClick={() => onPick(p.id)}>
+            {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content?variant=thumb`} alt="" className="thumb" /> : <div className="imgph thumb">No preview</div>}
+            <span className="small">{stageLabel(p.stage)}</span>
+          </button>
+        </li>
+      ))}
     </ul>
   );
+}
+
+/** A Before box and an After box. With onPick it's for choosing (empty boxes say what to do); otherwise for looking. */
+function BeforeAfter({ beforeId, afterId, onOpen, onPick, picking }: {
+  beforeId: string | null; afterId: string | null; onOpen?: (id: string) => void; onPick?: (stage: "before" | "after") => void; picking?: "before" | "after" | null;
+}) {
+  const orgId = useOrgId();
+  const box = (stage: "before" | "after", id: string | null) => (
+    <button key={stage} className={`fixbox ${id ? "filled" : "empty"} ${picking === stage ? "on" : ""}`}
+      aria-label={`${stage === "before" ? "Before" : "After"} photo${id ? "" : stage === "after" ? " (needed)" : " (optional)"}`}
+      onClick={() => (onPick ? onPick(stage) : id && onOpen?.(id))} disabled={!onPick && (!id || !onOpen)}>
+      {id ? <AuthImage path={`/v1/orgs/${orgId}/photos/${id}/content?variant=thumb`} alt="" className="thumb" /> : <span className="muted small">{onPick ? `Choose a photo${stage === "after" ? " (needed)" : " (optional)"}` : "None"}</span>}
+      <span className="fixtag">{stage === "before" ? "BEFORE" : "AFTER"}</span>
+    </button>
+  );
+  return <div className="fixboxes">{box("before", beforeId)}{box("after", afterId)}</div>;
 }
 
 type Mode = null | "submit" | "approve" | "send_back" | "reopen" | "edit";
@@ -67,7 +81,9 @@ export function IssueCard({ issue, onChanged, onOpenPhoto, markName, onShowMark,
   const i = issue;
   const [mode, setMode] = useState<Mode>(null);
   const [note, setNote] = useState("");
-  const [fixes, setFixes] = useState<string[]>([]);
+  const [before, setBefore] = useState<string | null>(null);
+  const [after, setAfter] = useState<string | null>(null);
+  const [picking, setPicking] = useState<"before" | "after" | null>(null);
   const [title, setTitle] = useState(i.title);
   const [details, setDetails] = useState(i.details ?? "");
   const [err, setErr] = useState<string | null>(null);
@@ -81,10 +97,10 @@ export function IssueCard({ issue, onChanged, onOpenPhoto, markName, onShowMark,
   const act = useMutation({
     mutationFn: (body: { action: IssueAction; note?: string | null; assigneeId?: string | null; fixPhotoIds?: string[]; title?: string; details?: string | null }) =>
       api<PhotoIssue>(`/v1/orgs/${orgId}/photo-issues/${i.id}/actions`, { method: "POST", body: { clientRef: crypto.randomUUID(), expectedStatus: i.status, ...body } }),
-    onSuccess: async () => { setErr(null); setMode(null); setNote(""); setFixes([]); await onChanged(); },
+    onSuccess: async () => { setErr(null); setMode(null); setNote(""); setBefore(null); setAfter(null); setPicking(null); await onChanged(); },
     onError: async (e) => { setErr(errorText(e)); if (e instanceof ApiRequestError && e.status === 409) await onChanged(); },
   });
-  const open = (m: Mode) => { setErr(null); setNote(""); setFixes([]); setTitle(i.title); setDetails(i.details ?? ""); setMode(m); };
+  const open = (m: Mode) => { setErr(null); setNote(""); setBefore(null); setAfter(null); setPicking(m === "submit" ? "after" : null); setTitle(i.title); setDetails(i.details ?? ""); setMode(m); };
 
   return (
     <div className={`issue ${i.status}`} data-testid="issue">
@@ -104,11 +120,10 @@ export function IssueCard({ issue, onChanged, onOpenPhoto, markName, onShowMark,
       {showPhotoLink && (i.photoDeleted
         ? <span className="muted small">The photo was deleted (an owner or manager can restore it).</span>
         : <button className="link small" onClick={() => onOpenPhoto?.(i.photoId)}>Open the photo</button>)}
-      {i.fixPhotoIds.length > 0 && (
-        <div className="small">
-          Fix photo{i.fixPhotoIds.length > 1 ? "s" : ""}:{" "}
-          {i.fixPhotoIds.map((id, n) => <button key={id} className="link" onClick={() => onOpenPhoto?.(id)} disabled={!onOpenPhoto}>#{n + 1}</button>)}
-        </div>
+      {i.fixPhotoIds.length > 0 && mode !== "submit" && (
+        <BeforeAfter onOpen={onOpenPhoto}
+          beforeId={i.fixPhotoIds.find((_, n) => i.fixPhotoStages?.[n] === "before") ?? (i.photoDeleted ? null : i.photoId)}
+          afterId={i.fixPhotoIds.filter((_, n) => i.fixPhotoStages?.[n] !== "before").at(-1) ?? null} />
       )}
 
       {mode === null && (
@@ -135,12 +150,17 @@ export function IssueCard({ issue, onChanged, onOpenPhoto, markName, onShowMark,
 
       {mode === "submit" && (
         <div className="iform">
-          <div className="label">Fix photos (optional)</div>
-          <FixPhotoPicker jobId={i.jobId} exclude={i.photoId} chosen={fixes} onChange={setFixes} />
+<BeforeAfter beforeId={before} afterId={after} picking={picking} onPick={(st) => setPicking(picking === st ? null : st)} />
+          {picking && (
+            <>
+              <div className="label">Choose the {picking === "before" ? "Before" : "After"} photo{(picking === "before" ? before : after) ? <> · <button className="link small" onClick={() => { (picking === "before" ? setBefore : setAfter)(null); }}>Remove it</button></> : null}</div>
+              <FixPhotoPicker jobId={i.jobId} exclude={i.photoId} stage={picking} onPick={(id) => { (picking === "before" ? setBefore : setAfter)(id); setPicking(picking === "before" && !after ? "after" : null); }} />
+            </>
+          )}
           <textarea aria-label="Note about the fix" rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What did you do? (optional)" />
           <div className="row">
             <button onClick={() => setMode(null)}>Cancel</button>
-            <button className="primary" disabled={act.isPending} onClick={() => act.mutate({ action: "submit", note: note.trim() || null, fixPhotoIds: fixes })}>Send for review</button>
+            <button className="primary" disabled={act.isPending || !after} onClick={() => act.mutate({ action: "submit", note: note.trim() || null, fixPhotoIds: [after!, ...(before ? [before] : [])] })}>{after ? "Send for review" : "Choose an After photo"}</button>
           </div>
         </div>
       )}

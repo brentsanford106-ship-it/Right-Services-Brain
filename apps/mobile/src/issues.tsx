@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as Crypto from "expo-crypto";
 import { ApiError, ISSUE_EVENT_LABEL, type PendingAction, ISSUE_STATUS_LABEL, NetworkError, issueStatusText, type IssueStatus } from "@rsb/photo-sync";
-import { useActionsVersion, useApp } from "./state";
-import { ServerImage, type ServerPhoto } from "./photos";
+import { useActionsVersion, useApp, useQueueVersion } from "./state";
+import { LocalImage, ServerImage, type ServerPhoto } from "./photos";
+import { importFromLibrary } from "./importPhotos";
 import { Button, C, s } from "./ui";
 
 /** An issue as the server sends it (see the API's PhotoIssue). */
@@ -28,6 +29,8 @@ export interface ServerIssue {
   updatedAt: string;
   lastEvent: string;
   fixPhotoIds: string[];
+  /** Stage of each fix photo, same order. Missing from older servers. */
+  fixPhotoStages?: string[];
   can: { assign: boolean; start: boolean; submit: boolean; approve: boolean; sendBack: boolean; reopen: boolean; edit: boolean };
 }
 interface IssueEvent { id: string; kind: string; actor: string; fromStatus: IssueStatus | null; toStatus: IssueStatus | null; note: string | null; assignee: string | null; createdAt: string }
@@ -111,6 +114,74 @@ export function WaitingChange({ a, what }: { a: PendingAction; what: string }) {
   );
 }
 
+type Slot = { localId: string | null; serverId: string | null };
+/** The photo's id on the server once it has uploaded (null while it's still on its way). */
+function slotServerId(app: ReturnType<typeof useApp>, slot: Slot | null): string | null {
+  if (!slot) return null;
+  if (slot.serverId) return slot.serverId;
+  const q = slot.localId ? app.queue.get(slot.localId) : undefined;
+  return q?.serverId && q.stored ? q.serverId : null;
+}
+
+/** One of the two boxes on "Send fix for review". Empty: a dashed box to tap. Filled: the photo (uploading or uploaded). */
+function FixBox({ label, hint, slot, serverId, onPress }: { label: string; hint: string; slot: Slot | null; serverId: string | null; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel={`${label} photo${slot ? "" : `, ${hint.toLowerCase()}. Tap to add`}`}
+      style={{ flex: 1, aspectRatio: 1, borderRadius: 10, overflow: "hidden", alignItems: "center", justifyContent: "center",
+        borderWidth: slot ? 0 : 2, borderStyle: "dashed", borderColor: C.muted, backgroundColor: slot ? C.line : "transparent" }}>
+      {serverId ? <ServerImage photoId={serverId} style={{ width: "100%", height: "100%" }} thumb />
+        : slot?.localId ? <LocalImage localId={slot.localId} which="thumbnail" style={{ width: "100%", height: "100%" }} />
+        : <View style={{ alignItems: "center", gap: 4 }}><Text style={{ fontSize: 28, color: C.muted }}>＋</Text><Text style={[s.muted, { fontSize: 12 }]}>{hint}</Text></View>}
+      <Text style={{ position: "absolute", top: 6, left: 6, color: "#fff", fontSize: 12, fontWeight: "800", backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, overflow: "hidden" }}>{label}</Text>
+      {slot && !serverId ? <Text style={{ position: "absolute", bottom: 6, left: 6, right: 6, textAlign: "center", color: "#fff", fontSize: 11, fontWeight: "700", backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 6, overflow: "hidden", paddingVertical: 2 }}>Uploading…</Text> : null}
+    </Pressable>
+  );
+}
+
+/** The problem photo next to the fix photo(s), so the fix can be checked at a glance. Tapping one opens it. */
+function BeforeAfter({ app, jobId, beforeId, afterIds, onRemoveAfter, emptyAfter = "No after photo" }: {
+  app: ReturnType<typeof useApp>; jobId: string; beforeId: string | null; afterIds: string[]; onRemoveAfter?: (id: string) => void; emptyAfter?: string;
+}) {
+  const box = { flex: 1, aspectRatio: 1, borderRadius: 8, overflow: "hidden" as const, backgroundColor: C.line };
+  const tag = (t: string) => (
+    <Text style={{ position: "absolute", top: 6, left: 6, color: "#fff", fontSize: 12, fontWeight: "800", backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, overflow: "hidden" }}>{t}</Text>
+  );
+  const [first, ...more] = afterIds;
+  return (
+    <View style={{ gap: 6 }}>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Pressable style={box} disabled={!beforeId} onPress={() => beforeId && void openIssuePhoto(app, jobId, beforeId)} accessibilityRole="button" accessibilityLabel="Before: the problem photo">
+          {beforeId ? <ServerImage photoId={beforeId} style={{ width: "100%", height: "100%" }} thumb /> : <Text style={[s.muted, { margin: 8 }]}>Photo deleted</Text>}
+          {tag("BEFORE")}
+        </Pressable>
+        <Pressable style={[box, first ? null : { alignItems: "center", justifyContent: "center", borderWidth: 2, borderStyle: "dashed", borderColor: C.muted, backgroundColor: "transparent" }]}
+          disabled={!first} onPress={() => first && void openIssuePhoto(app, jobId, first)} accessibilityRole="button" accessibilityLabel={first ? "After: the fix photo" : emptyAfter}>
+          {first ? <ServerImage photoId={first} style={{ width: "100%", height: "100%" }} thumb /> : <Text style={[s.muted, { textAlign: "center", padding: 8 }]}>{emptyAfter}</Text>}
+          {tag("AFTER")}
+          {first && onRemoveAfter ? (
+            <Pressable onPress={() => onRemoveAfter(first)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Remove this after photo"
+              style={{ position: "absolute", top: 6, right: 6, width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(0,0,0,0.6)", alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: "#fff", fontWeight: "800" }}>✕</Text>
+            </Pressable>
+          ) : null}
+        </Pressable>
+      </View>
+      {more.length ? (
+        <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <Text style={s.muted}>Also:</Text>
+          {more.map((id) => (
+            <Pressable key={id} onPress={() => (onRemoveAfter ? onRemoveAfter(id) : void openIssuePhoto(app, jobId, id))} accessibilityRole="button"
+              accessibilityLabel={onRemoveAfter ? "Remove this after photo" : "Open this after photo"}>
+              <ServerImage photoId={id} style={{ width: 48, height: 48, borderRadius: 6 }} thumb />
+              {onRemoveAfter ? <Text style={{ position: "absolute", top: 0, right: 2, color: "#fff", fontWeight: "800", textShadowColor: "#000", textShadowRadius: 3 }}>✕</Text> : null}
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 /** One issue and the buttons the viewer may use. Changing an issue needs a connection for now. */
 export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLink }: {
   issue: ServerIssue; onChanged: () => void; markName?: string | null; onShowMark?: () => void; showPhotoLink?: boolean;
@@ -125,14 +196,18 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
   const [fixes, setFixes] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<IssueEvent[] | null>(null);
-  const [jobPhotos, setJobPhotos] = useState<ServerPhoto[]>([]);
+  // "Send fix for review": a Before box (optional) and an After box (needed). Each holds one photo, which may still be uploading.
+  const [before, setBefore] = useState<Slot | null>(null);
+  const [after, setAfter] = useState<Slot | null>(null);
+  const cameraFor = useRef<{ stage: "before" | "after"; since: string } | null>(null);
+  useQueueVersion(); // re-check uploads as they finish
   const people = useJobPeople(i.jobId, i.can.assign);
 
   const act = async (body: { action: string; note?: string | null; assigneeId?: string | null; fixPhotoIds?: string[] }) => {
     setBusy(true);
     // Made once, so if this is sent again later (no signal now) the server applies it only once.
     const full = { clientRef: Crypto.randomUUID(), expectedStatus: i.status, ...body };
-    const done = () => { setMode(null); setNote(""); setFixes([]); setHistory(null); };
+    const done = () => { setMode(null); setNote(""); setBefore(null); setAfter(null); setHistory(null); };
     try {
       await app.api.post(`/v1/orgs/${orgId}/photo-issues/${i.id}/actions`, full);
       done();
@@ -155,17 +230,38 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
       setBusy(false);
     }
   };
-  const startSubmit = async () => {
-    setMode("submit");
-    const key = `photos-${i.jobId}`;
-    try {
-      const r = await app.api.get<{ items: ServerPhoto[] }>(`/v1/orgs/${orgId}/jobs/${i.jobId}/photos`);
-      setJobPhotos(r.items);
-      await app.cache.put(key, r.items);
-    } catch {
-      setJobPhotos((await app.cache.get<ServerPhoto[]>(key)) ?? []);
-    }
+  const startSubmit = () => setMode("submit");
+  const setSlot = (stage: "before" | "after", v: Slot | null) => (stage === "before" ? setBefore(v) : setAfter(v));
+  // Back from the camera: the newest photo taken there for this box goes in it.
+  useFocusEffect(useCallback(() => {
+    const c = cameraFor.current;
+    if (!c) return;
+    cameraFor.current = null;
+    const taken = app.queue.forJob(i.jobId).filter((q) => q.stage === c.stage && q.capturedAt >= c.since);
+    const newest = taken[taken.length - 1];
+    if (newest) setSlot(c.stage, { localId: newest.localId, serverId: null });
+  }, [app, i.jobId])); // eslint-disable-line react-hooks/exhaustive-deps
+  const chooseFor = (stage: "before" | "after") => {
+    const filled = stage === "before" ? before : after;
+    const label = stage === "before" ? "Before" : "After";
+    Alert.alert(`${label} photo`, stage === "after" ? "A photo showing the finished fix." : "Optional: a photo from before you fixed it.", [
+      { text: "Take photo", onPress: () => {
+        cameraFor.current = { stage, since: new Date(Date.now() - 2000).toISOString() };
+        router.push({ pathname: "/jobs/[jobId]/camera", params: { jobId: i.jobId, jobNumber: i.jobNumber, stage } });
+      } },
+      { text: "Choose from library", onPress: () => {
+        void importFromLibrary(app, { jobId: i.jobId, jobNumber: i.jobNumber }, stage, { single: true, onAdded: (localId) => setSlot(stage, { localId, serverId: null }) });
+      } },
+      ...(filled ? [{ text: "Remove", style: "destructive" as const, onPress: () => setSlot(stage, null) }] : []),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
   };
+  const beforeId = slotServerId(app, before);
+  const afterId = slotServerId(app, after);
+  const waitingUpload = (!!before && !beforeId) || (!!after && !afterId);
+  // Remember the server id once it's known (the phone forgets uploaded photos' details after a while).
+  useEffect(() => { if (before && !before.serverId && beforeId) setBefore({ ...before, serverId: beforeId }); }, [before, beforeId]);
+  useEffect(() => { if (after && !after.serverId && afterId) setAfter({ ...after, serverId: afterId }); }, [after, afterId]);
   const loadHistory = async () => {
     if (history) return setHistory(null);
     try {
@@ -175,7 +271,6 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
       Alert.alert("History not loaded", problem(e));
     }
   };
-  const fixChoices = jobPhotos.filter((p) => p.id !== i.photoId && p.uploadStatus === "stored").sort((a, b) => b.capturedAt.localeCompare(a.capturedAt)).slice(0, 40);
 
   return (
     <View style={[s.card, { gap: 6, borderLeftWidth: 4, borderLeftColor: TONE[i.status] }]} accessibilityLabel={`Issue: ${i.title}, ${issueStatusText(i)}`}>
@@ -199,13 +294,10 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
           <Pressable onPress={() => void openIssuePhoto(app, i.jobId, i.photoId)} hitSlop={6}><Text style={{ color: C.link, fontWeight: "600" }}>Open the photo ›</Text></Pressable>
         )
       ) : null}
-      {i.fixPhotoIds.length ? (
-        <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <Text style={s.muted}>Fix photo{i.fixPhotoIds.length > 1 ? "s" : ""}:</Text>
-          {i.fixPhotoIds.map((id, n) => (
-            <Pressable key={id} onPress={() => void openIssuePhoto(app, i.jobId, id)} hitSlop={6}><Text style={{ color: C.link, fontWeight: "600" }}>#{n + 1}</Text></Pressable>
-          ))}
-        </View>
+      {i.fixPhotoIds.length && mode !== "submit" ? (
+        <BeforeAfter app={app} jobId={i.jobId}
+          beforeId={i.fixPhotoIds.find((_, n) => i.fixPhotoStages?.[n] === "before") ?? (i.photoDeleted ? null : i.photoId)}
+          afterIds={i.fixPhotoIds.filter((_, n) => i.fixPhotoStages?.[n] !== "before")} />
       ) : null}
 
       {waiting.map((a) => <WaitingChange key={a.localId} a={a} what={a.label} />)}
@@ -225,23 +317,11 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
         <View style={{ gap: 8 }}>
           {mode === "submit" ? (
             <>
-              <Text style={s.label}>Fix photos (optional)</Text>
-              {fixChoices.length ? (
-                <ScrollView horizontal contentContainerStyle={{ gap: 6 }}>
-                  {fixChoices.map((p) => {
-                    const on = fixes.includes(p.id);
-                    return (
-                      <Pressable key={p.id} accessibilityRole="button" accessibilityState={{ selected: on }} accessibilityLabel={`${p.stage} photo from ${new Date(p.capturedAt).toLocaleString()}`}
-                        onPress={() => setFixes(on ? fixes.filter((x) => x !== p.id) : [...fixes, p.id].slice(0, 20))}
-                        style={{ borderWidth: 3, borderColor: on ? C.brand : "transparent", borderRadius: 8 }}>
-                        <ServerImage photoId={p.id} style={{ width: 72, height: 72, borderRadius: 6 }} thumb />
-                        <Text style={{ position: "absolute", bottom: 2, left: 4, color: "#fff", fontSize: 11, fontWeight: "700", textShadowColor: "#000", textShadowRadius: 3 }}>{p.stage}{on ? " ✓" : ""}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              ) : null}
-              <Text style={s.muted}>Take an “After” photo of the fix first. Photos still uploading show up here once they're uploaded.</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <FixBox label="BEFORE" hint="Optional" slot={before} serverId={beforeId} onPress={() => chooseFor("before")} />
+                <FixBox label="AFTER" hint="Needed" slot={after} serverId={afterId} onPress={() => chooseFor("after")} />
+              </View>
+              <Text style={s.muted}>Tap a box to take a photo or choose one from your library. The After photo is needed.</Text>
             </>
           ) : null}
           <TextInput style={[s.input, { minHeight: 60, textAlignVertical: "top" }]} multiline maxLength={2000} value={note} onChangeText={setNote} placeholderTextColor={C.muted}
@@ -251,9 +331,9 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
             <Button
               style={{ flex: 1 }}
               busy={busy}
-              disabled={mode === "send_back" && !note.trim()}
-              title={mode === "submit" ? "Send for review" : mode === "approve" ? "Approve fix" : mode === "send_back" ? "Send back" : "Reopen"}
-              onPress={() => void act({ action: mode, note: note.trim() || null, ...(mode === "submit" ? { fixPhotoIds: fixes } : {}) })}
+              disabled={(mode === "send_back" && !note.trim()) || (mode === "submit" && (!afterId || waitingUpload))}
+              title={mode === "submit" ? (!after ? "Add an After photo" : waitingUpload ? "Waiting for upload…" : "Send for review") : mode === "approve" ? "Approve fix" : mode === "send_back" ? "Send back" : "Reopen"}
+              onPress={() => void act({ action: mode, note: note.trim() || null, ...(mode === "submit" ? { fixPhotoIds: [afterId, beforeId].filter((x): x is string => !!x) } : {}) })}
             />
           </View>
         </View>

@@ -24,12 +24,13 @@ export default function Camera() {
   const app = useApp();
   useQueueVersion();
   const insets = useSafeAreaInsets();
-  const { jobId, jobNumber } = useLocalSearchParams<{ jobId: string; jobNumber: string }>();
+  // `stage` lets another screen open the camera ready for, say, an "After" photo of a fix.
+  const { jobId, jobNumber, stage: startStage } = useLocalSearchParams<{ jobId: string; jobNumber: string; stage?: string }>();
   const [permission, requestPermission] = useCameraPermissions();
   const cam = useRef<CameraView>(null);
   const [focused, setFocused] = useState(true);
   const [ready, setReady] = useState(false);
-  const [stage, setStage] = useState<Stage>("during");
+  const [stage, setStage] = useState<Stage>(startStage === "before" || startStage === "after" ? startStage : "during");
   const [latestId, setLatestId] = useState<string | null>(null);
   const [saving, setSaving] = useState(0);
   const [shooting, setShooting] = useState(false);

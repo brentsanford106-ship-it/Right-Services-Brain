@@ -28,12 +28,16 @@ async function libraryAllowed(): Promise<boolean> {
  * says nothing about where an old photo was taken), and the date comes from the photo's own details when it has one.
  * Returns how many were added.
  */
-export async function importFromLibrary(app: AppState, job: { jobId: string; jobNumber: string }, stage: Stage): Promise<number> {
+export async function importFromLibrary(
+  app: AppState, job: { jobId: string; jobNumber: string }, stage: Stage,
+  /** single: pick one photo and skip the "Added" message (for the Before / After boxes of a fix). onAdded gets each new photo's id on this phone. */
+  opts: { single?: boolean; onAdded?: (localId: string) => void } = {},
+): Promise<number> {
   if (!(await libraryAllowed())) return 0;
   const res = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ["images"],
-    allowsMultipleSelection: true,
-    selectionLimit: MAX_AT_ONCE,
+    allowsMultipleSelection: !opts.single,
+    selectionLimit: opts.single ? 1 : MAX_AT_ONCE,
     exif: true,
     quality: 1,
     // iPhone photos are usually HEIC: ask iOS for a JPEG copy, which the server and every browser can show.
@@ -58,7 +62,7 @@ export async function importFromLibrary(app: AppState, job: { jobId: string; job
       const [original, thumbnail] = await Promise.all([new File(jpegUri ?? asset.uri).bytes(), new File(thumbUri).bytes()]);
       const taken = dateTakenFromExif(asset.exif ?? null);
       if (!taken) unknownDates++;
-      await app.queue.capture({
+      const q = await app.queue.capture({
         orgId: app.session!.orgId,
         jobId: job.jobId,
         jobNumber: job.jobNumber,
@@ -73,6 +77,7 @@ export async function importFromLibrary(app: AppState, job: { jobId: string; job
         location: null,
       });
       added++;
+      opts.onAdded?.(q.localId);
     } catch (e) {
       failed.push(asset.fileName ?? `photo ${failed.length + added + 1}`);
       if (e instanceof ApiError || e instanceof NetworkError) break;
@@ -84,6 +89,7 @@ export async function importFromLibrary(app: AppState, job: { jobId: string; job
     }
   }
   if (added) app.syncNow();
+  if (opts.single && added && !failed.length) return added;
   const notes: string[] = [];
   if (unknownDates) notes.push(`${unknownDates} had no "date taken", so they show the time you added them.`);
   if (failed.length) notes.push(`${failed.length} couldn't be added: ${failed.slice(0, 3).join(", ")}${failed.length > 3 ? "…" : ""}`);

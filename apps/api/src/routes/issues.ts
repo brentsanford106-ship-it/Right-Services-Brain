@@ -49,6 +49,7 @@ interface IssueRow {
   updated_at: Date;
   last_event: string;
   fix_photo_ids: string[] | null;
+  fix_photo_stages: string[] | null;
 }
 
 const ISSUE_SELECT = `
@@ -59,7 +60,10 @@ const ISSUE_SELECT = `
            ORDER BY e.created_at DESC LIMIT 1) AS last_event,
          (SELECT array_agg(e.photo_id ORDER BY e.created_at) FROM photo_issue_events e
            JOIN photos fp ON fp.organization_id = e.organization_id AND fp.id = e.photo_id AND fp.deleted_at IS NULL
-           WHERE e.organization_id = i.organization_id AND e.issue_id = i.id AND e.kind = 'fix_photo_added') AS fix_photo_ids
+           WHERE e.organization_id = i.organization_id AND e.issue_id = i.id AND e.kind = 'fix_photo_added') AS fix_photo_ids,
+         (SELECT array_agg(fp.stage ORDER BY e.created_at) FROM photo_issue_events e
+           JOIN photos fp ON fp.organization_id = e.organization_id AND fp.id = e.photo_id AND fp.deleted_at IS NULL
+           WHERE e.organization_id = i.organization_id AND e.issue_id = i.id AND e.kind = 'fix_photo_added') AS fix_photo_stages
     FROM photo_issues i
     JOIN jobs j ON j.organization_id = i.organization_id AND j.id = i.job_id
     JOIN photos p ON p.organization_id = i.organization_id AND p.id = i.photo_id
@@ -113,6 +117,7 @@ const toIssue = (r: IssueRow, ctx: OrgContext): PhotoIssue => ({
   updatedAt: r.updated_at.toISOString(),
   lastEvent: r.last_event,
   fixPhotoIds: r.fix_photo_ids ?? [],
+  fixPhotoStages: r.fix_photo_stages ?? [],
   can: allowed(r, ctx),
 });
 
@@ -296,6 +301,9 @@ export async function issueRoutes(app: FastifyInstance, { db }: RouteDeps): Prom
             const p = await loadVisiblePhoto(tx, ctx, pid);
             if (p.job_id !== r.job_id) throw new HttpError("validation_failed", "Fix photos must be on the same job.", [{ path: "fixPhotoIds", issue: "other job" }]);
           }
+          // An "After" photo of the fix is required (JB, 2026-11-23); a "Before" photo is optional.
+          const { rowCount: afters } = await tx.query("SELECT 1 FROM photos WHERE id = ANY($1::uuid[]) AND stage = 'after'", [photos]);
+          if (!afters) throw new HttpError("validation_failed", "Add an After photo of the fix before sending it for review.", [{ path: "fixPhotoIds", issue: "needs an after photo" }]);
           await set("status = 'awaiting_review', submitted_by_membership_id = $2", [me]);
           await addEvent(tx, ctx, issueId, { kind: "submitted", from: r.status, to: "awaiting_review", note, clientRef: ref });
           for (const pid of photos) await addEvent(tx, ctx, issueId, { kind: "fix_photo_added", photoId: pid });
