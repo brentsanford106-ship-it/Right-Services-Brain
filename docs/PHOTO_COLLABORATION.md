@@ -163,7 +163,7 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
   - Only the person it's assigned to can start it or send a fix. Sending a fix also needs "Upload photos".
   - **Nobody approves their own fix.** The one exception is an issue a manager reported, assigned to themselves and fixed (JB's decision).
   - The person who reported an issue can fix its wording until it's assigned.
-- **Fix photos:** when sending a fix, you can choose photos from the same job (for example, the "After" photo of the repair). The server checks they're on the same job and that you can see them.
+- **Fix photos (JB, 2026-11-23):** "Send fix for review" shows two boxes, **Before** (optional) and **After** (needed). On the phone, tapping a box offers **Take photo** (opens the camera set to that stage; the newest photo taken goes in the box) or **Choose from library** (one photo, imported into the job with that stage). The box shows "Uploading…" until the photo is up, and Send waits for it. On the website, clicking a box lists the job's photos (that stage first). The server requires at least one photo with stage "after", checks every photo is on the same job and visible to the sender, and returns each fix photo's stage (`fixPhotoStages`). When reviewing, the issue shows Before (the chosen Before photo, or the problem photo) next to After.
 - **Safe when two people act at once:** every change says what status the person saw. If someone else changed the issue first, nothing happens and the app says *"This issue changed while you were away: it is now …"*. The same tap sent twice is only applied once.
 - **Photos with issue history are kept.** "Delete forever" and the automatic clean-out skip a photo that has issues, so the record of what was fixed stays. Deleting it normally (Recently Deleted) still works. The issue then shows "The photo was deleted".
 - **Website:**
@@ -172,7 +172,7 @@ JB's decisions (2026-11-23): in-app alerts first (lock-screen alerts after the p
   - Job page: **Issues to fix**, grouped as Waiting for review, Not assigned yet, Being fixed, and Fixed (folded away). **Open the photo** jumps to it.
   - Overview: **🔧 Assigned to me** and, for managers, **Fixes waiting for review**.
 - **Phone:**
-  - Photo screen: the same **To fix** section with Report issue, Start, Send fix for review (choose fix photos), Approve, Send back, Reopen, Assign and History.
+  - Photo screen: the same **To fix** section with Report issue, Start, Send fix for review (Before / After boxes), Approve, Send back, Reopen, Assign and History.
   - Gallery: **🔧 To fix** filter, 🔧 count on thumbnails, and a **🔧 Issues** link to the job's Issues list.
   - Home: a **🔧 … to fix · … waiting for your review** bar when you have any. It opens the To fix list.
 - **Offline:** the last issues seen are kept (encrypted) and show without signal. **Reporting and changing an issue need a connection for now.** If it fails, what you typed stays on screen. Doing these offline is planned with step 5.

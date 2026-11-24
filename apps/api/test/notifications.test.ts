@@ -31,8 +31,18 @@ async function alerts(who: string, photo: string, org = ORG_A): Promise<Alert[]>
 const kinds = async (who: string, photo: string) => (await alerts(who, photo)).map((a) => a.kind).sort();
 const comment = (who: string, photo: string, body: Record<string, unknown>) =>
   t.as(who).post(`${A}/photos/${photo}/comments`, { clientRef: uuid(), mentionIds: [], parentId: null, ...body });
-const act = (who: string, issue: string, action: string, body: Record<string, unknown> = {}) =>
-  t.as(who).post(`${A}/photo-issues/${issue}/actions`, { clientRef: uuid(), action, ...body });
+// Sending a fix needs an "After" photo: when a test doesn't give one, the person takes one on the issue's job first.
+async function act(who: string, issue: string, action: string, body: Record<string, unknown> = {}) {
+  if (action === "submit" && !("fixPhotoIds" in body)) {
+    const g = await t.as(who).get(`${A}/photo-issues/${issue}`);
+    const jobId = g.body.issue?.jobId ?? g.body.jobId;
+    if (jobId) {
+      const p = await t.as(who).post(`${A}/jobs/${jobId}/photos`, { clientRef: uuid(), stage: "after", capturedAt: "2026-11-12T11:00:00Z", contentType: "image/jpeg" });
+      if (p.status === 201) body = { ...body, fixPhotoIds: [p.body.id] };
+    }
+  }
+  return t.as(who).post(`${A}/photo-issues/${issue}/actions`, { clientRef: uuid(), action, ...body });
+}
 
 describe("in-app alerts", () => {
   it("comments: whoever took the photo, people @mentioned, and the person replied to (once each, never yourself)", async () => {

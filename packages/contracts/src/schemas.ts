@@ -367,7 +367,7 @@ export const IssueActionRequest = z.strictObject({
   expectedStatus: IssueStatus.optional(),
   note: z.string().trim().max(2000).nullable().optional(),
   assigneeId: Uuid.nullable().optional(),
-  /** "After" photos showing the fix (on the same job). */
+  /** Photos of the fix (on the same job): at least one "After" photo, and optionally a "Before" photo. */
   fixPhotoIds: z.array(Uuid).max(20).default([]),
   title: z.string().trim().min(1).max(200).optional(),
   details: z.string().trim().max(2000).nullable().optional(),
@@ -400,6 +400,8 @@ export const PhotoIssue = z.object({
   /** The last thing that happened (for example "sent_back"), for showing "Sent back". */
   lastEvent: z.string(),
   fixPhotoIds: z.array(Uuid),
+  /** The stage of each fix photo, in the same order ("before" or "after"), for the Before / After boxes. */
+  fixPhotoStages: z.array(z.string()).default([]),
   /** What the person asking may do. For hiding buttons only; the server decides. */
   can: z.object({ assign: z.boolean(), start: z.boolean(), submit: z.boolean(), approve: z.boolean(), sendBack: z.boolean(), reopen: z.boolean(), edit: z.boolean() }),
 });
