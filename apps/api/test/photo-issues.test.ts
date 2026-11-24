@@ -51,16 +51,16 @@ describe("issues to fix", () => {
     expect(mine.body.items.find((i: { id: string }) => i.id === id).can).toMatchObject({ start: true, submit: true, approve: false });
 
     expect((await act("dev-eli-employee", id, "start")).body.status).toBe("in_progress");
-    // An After photo is required; a Before photo is optional. Each comes back with its stage for the Before / After boxes.
-    const before = await newPhoto("dev-eli-employee", hp1001, "before");
-    const noAfter = await act("dev-eli-employee", id, "submit", { fixPhotoIds: [before], expectedStatus: "in_progress" });
+    // The After box is needed; the Before box is optional. Any photo can go in either box, whatever its own tag
+    // (people forget to change it), and each comes back with the box it was put in.
+    const before = await newPhoto("dev-eli-employee", hp1001, "during");
+    const noAfter = await act("dev-eli-employee", id, "submit", { fixPhotoIds: [], beforePhotoId: before, expectedStatus: "in_progress" });
     expect(noAfter.status).toBe(400);
     expect(noAfter.body.error.message).toMatch(/Add an After photo/);
-    expect((await act("dev-eli-employee", id, "submit", { fixPhotoIds: [], expectedStatus: "in_progress" })).status).toBe(400);
-    const fix = await newPhoto("dev-eli-employee", hp1001, "after");
-    const s = await act("dev-eli-employee", id, "submit", { note: "Re-strapped it", fixPhotoIds: [fix, before], expectedStatus: "in_progress" });
+    const fix = await newPhoto("dev-eli-employee", hp1001, "during"); // tagged During, but put in the After box
+    const s = await act("dev-eli-employee", id, "submit", { note: "Re-strapped it", fixPhotoIds: [fix], beforePhotoId: before, expectedStatus: "in_progress" });
     expect(s.status).toBe(200);
-    expect(s.body).toMatchObject({ status: "awaiting_review", submittedBy: "Eli Employee", fixPhotoIds: [fix, before], fixPhotoStages: ["after", "before"] });
+    expect(s.body).toMatchObject({ status: "awaiting_review", submittedBy: "Eli Employee", fixPhotoIds: [fix, before], fixPhotoRoles: ["after", "before"] });
     expect((await act("dev-eli-employee", id, "approve")).status).toBe(403); // employees can't approve
     const ok = await act("dev-morgan-manager", id, "approve");
     expect(ok.body).toMatchObject({ status: "resolved", resolvedBy: "Morgan Manager" });

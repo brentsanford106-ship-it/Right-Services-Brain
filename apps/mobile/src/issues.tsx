@@ -30,7 +30,7 @@ export interface ServerIssue {
   lastEvent: string;
   fixPhotoIds: string[];
   /** Stage of each fix photo, same order. Missing from older servers. */
-  fixPhotoStages?: string[];
+  fixPhotoRoles?: ("before" | "after")[];
   can: { assign: boolean; start: boolean; submit: boolean; approve: boolean; sendBack: boolean; reopen: boolean; edit: boolean };
 }
 interface IssueEvent { id: string; kind: string; actor: string; fromStatus: IssueStatus | null; toStatus: IssueStatus | null; note: string | null; assignee: string | null; createdAt: string }
@@ -203,7 +203,7 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
   useQueueVersion(); // re-check uploads as they finish
   const people = useJobPeople(i.jobId, i.can.assign);
 
-  const act = async (body: { action: string; note?: string | null; assigneeId?: string | null; fixPhotoIds?: string[] }) => {
+  const act = async (body: { action: string; note?: string | null; assigneeId?: string | null; fixPhotoIds?: string[]; beforePhotoId?: string | null }) => {
     setBusy(true);
     // Made once, so if this is sent again later (no signal now) the server applies it only once.
     const full = { clientRef: Crypto.randomUUID(), expectedStatus: i.status, ...body };
@@ -296,8 +296,8 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
       ) : null}
       {i.fixPhotoIds.length && mode !== "submit" ? (
         <BeforeAfter app={app} jobId={i.jobId}
-          beforeId={i.fixPhotoIds.find((_, n) => i.fixPhotoStages?.[n] === "before") ?? (i.photoDeleted ? null : i.photoId)}
-          afterIds={i.fixPhotoIds.filter((_, n) => i.fixPhotoStages?.[n] !== "before")} />
+          beforeId={i.fixPhotoIds.find((_, n) => i.fixPhotoRoles?.[n] === "before") ?? (i.photoDeleted ? null : i.photoId)}
+          afterIds={i.fixPhotoIds.filter((_, n) => i.fixPhotoRoles?.[n] !== "before")} />
       ) : null}
 
       {waiting.map((a) => <WaitingChange key={a.localId} a={a} what={a.label} />)}
@@ -333,7 +333,7 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
               busy={busy}
               disabled={(mode === "send_back" && !note.trim()) || (mode === "submit" && (!afterId || waitingUpload))}
               title={mode === "submit" ? (!after ? "Add an After photo" : waitingUpload ? "Waiting for upload…" : "Send for review") : mode === "approve" ? "Approve fix" : mode === "send_back" ? "Send back" : "Reopen"}
-              onPress={() => void act({ action: mode, note: note.trim() || null, ...(mode === "submit" ? { fixPhotoIds: [afterId, beforeId].filter((x): x is string => !!x) } : {}) })}
+              onPress={() => void act({ action: mode, note: note.trim() || null, ...(mode === "submit" ? { fixPhotoIds: afterId ? [afterId] : [], beforePhotoId: beforeId } : {}) })}
             />
           </View>
         </View>
