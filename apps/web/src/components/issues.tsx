@@ -95,7 +95,7 @@ export function IssueCard({ issue, onChanged, onOpenPhoto, markName, onShowMark,
     enabled: showHistory,
   });
   const act = useMutation({
-    mutationFn: (body: { action: IssueAction; note?: string | null; assigneeId?: string | null; fixPhotoIds?: string[]; title?: string; details?: string | null }) =>
+    mutationFn: (body: { action: IssueAction; note?: string | null; assigneeId?: string | null; fixPhotoIds?: string[]; beforePhotoId?: string | null; title?: string; details?: string | null }) =>
       api<PhotoIssue>(`/v1/orgs/${orgId}/photo-issues/${i.id}/actions`, { method: "POST", body: { clientRef: crypto.randomUUID(), expectedStatus: i.status, ...body } }),
     onSuccess: async () => { setErr(null); setMode(null); setNote(""); setBefore(null); setAfter(null); setPicking(null); await onChanged(); },
     onError: async (e) => { setErr(errorText(e)); if (e instanceof ApiRequestError && e.status === 409) await onChanged(); },
@@ -122,8 +122,8 @@ export function IssueCard({ issue, onChanged, onOpenPhoto, markName, onShowMark,
         : <button className="link small" onClick={() => onOpenPhoto?.(i.photoId)}>Open the photo</button>)}
       {i.fixPhotoIds.length > 0 && mode !== "submit" && (
         <BeforeAfter onOpen={onOpenPhoto}
-          beforeId={i.fixPhotoIds.find((_, n) => i.fixPhotoStages?.[n] === "before") ?? (i.photoDeleted ? null : i.photoId)}
-          afterId={i.fixPhotoIds.filter((_, n) => i.fixPhotoStages?.[n] !== "before").at(-1) ?? null} />
+          beforeId={i.fixPhotoIds.find((_, n) => i.fixPhotoRoles?.[n] === "before") ?? (i.photoDeleted ? null : i.photoId)}
+          afterId={i.fixPhotoIds.filter((_, n) => i.fixPhotoRoles?.[n] !== "before").at(-1) ?? null} />
       )}
 
       {mode === null && (
@@ -160,7 +160,7 @@ export function IssueCard({ issue, onChanged, onOpenPhoto, markName, onShowMark,
           <textarea aria-label="Note about the fix" rows={2} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What did you do? (optional)" />
           <div className="row">
             <button onClick={() => setMode(null)}>Cancel</button>
-            <button className="primary" disabled={act.isPending || !after} onClick={() => act.mutate({ action: "submit", note: note.trim() || null, fixPhotoIds: [after!, ...(before ? [before] : [])] })}>{after ? "Send for review" : "Choose an After photo"}</button>
+            <button className="primary" disabled={act.isPending || !after} onClick={() => act.mutate({ action: "submit", note: note.trim() || null, fixPhotoIds: [after!], beforePhotoId: before })}>{after ? "Send for review" : "Choose an After photo"}</button>
           </div>
         </div>
       )}

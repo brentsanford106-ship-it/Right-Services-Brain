@@ -49,7 +49,7 @@ interface IssueRow {
   updated_at: Date;
   last_event: string;
   fix_photo_ids: string[] | null;
-  fix_photo_stages: string[] | null;
+  fix_photo_roles: string[] | null;
 }
 
 const ISSUE_SELECT = `
@@ -61,9 +61,9 @@ const ISSUE_SELECT = `
          (SELECT array_agg(e.photo_id ORDER BY e.created_at) FROM photo_issue_events e
            JOIN photos fp ON fp.organization_id = e.organization_id AND fp.id = e.photo_id AND fp.deleted_at IS NULL
            WHERE e.organization_id = i.organization_id AND e.issue_id = i.id AND e.kind = 'fix_photo_added') AS fix_photo_ids,
-         (SELECT array_agg(fp.stage ORDER BY e.created_at) FROM photo_issue_events e
+         (SELECT array_agg(COALESCE(e.photo_role, 'after') ORDER BY e.created_at) FROM photo_issue_events e
            JOIN photos fp ON fp.organization_id = e.organization_id AND fp.id = e.photo_id AND fp.deleted_at IS NULL
-           WHERE e.organization_id = i.organization_id AND e.issue_id = i.id AND e.kind = 'fix_photo_added') AS fix_photo_stages
+           WHERE e.organization_id = i.organization_id AND e.issue_id = i.id AND e.kind = 'fix_photo_added') AS fix_photo_roles
     FROM photo_issues i
     JOIN jobs j ON j.organization_id = i.organization_id AND j.id = i.job_id
     JOIN photos p ON p.organization_id = i.organization_id AND p.id = i.photo_id
@@ -117,7 +117,7 @@ const toIssue = (r: IssueRow, ctx: OrgContext): PhotoIssue => ({
   updatedAt: r.updated_at.toISOString(),
   lastEvent: r.last_event,
   fixPhotoIds: r.fix_photo_ids ?? [],
-  fixPhotoStages: r.fix_photo_stages ?? [],
+  fixPhotoRoles: (r.fix_photo_roles ?? []) as ("before" | "after")[],
   can: allowed(r, ctx),
 });
 
@@ -136,11 +136,11 @@ async function assertOnJob(tx: Tx, ctx: OrgContext, jobId: string, membershipId:
   if (!rowCount) throw new HttpError("validation_failed", "You can only assign an issue to someone who can see this job.", [{ path: "assigneeId", issue: "not on this job" }]);
 }
 
-async function addEvent(tx: Tx, ctx: OrgContext, issueId: string, e: { kind: string; from?: IssueStatus | null; to?: IssueStatus | null; note?: string | null; assignee?: string | null; photoId?: string | null; clientRef?: string | null }) {
+async function addEvent(tx: Tx, ctx: OrgContext, issueId: string, e: { kind: string; from?: IssueStatus | null; to?: IssueStatus | null; note?: string | null; assignee?: string | null; photoId?: string | null; clientRef?: string | null; role?: "before" | "after" | null }) {
   await tx.query(
-    `INSERT INTO photo_issue_events (organization_id, issue_id, actor_membership_id, kind, from_status, to_status, note, assignee_membership_id, photo_id, client_ref)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-    [ctx.orgId, issueId, ctx.membershipId, e.kind, e.from ?? null, e.to ?? null, e.note ?? null, e.assignee ?? null, e.photoId ?? null, e.clientRef ?? null],
+    `INSERT INTO photo_issue_events (organization_id, issue_id, actor_membership_id, kind, from_status, to_status, note, assignee_membership_id, photo_id, client_ref, photo_role)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [ctx.orgId, issueId, ctx.membershipId, e.kind, e.from ?? null, e.to ?? null, e.note ?? null, e.assignee ?? null, e.photoId ?? null, e.clientRef ?? null, e.role ?? null],
   );
 }
 
@@ -296,17 +296,19 @@ export async function issueRoutes(app: FastifyInstance, { db }: RouteDeps): Prom
         case "submit": {
           if (!can.submit) deny(r.assignee_membership_id === me ? "This issue isn't waiting for a fix." : "Only the person it's assigned to can send a fix.");
           ctx.require("photos.upload");
-          const photos = [...new Set(body.fixPhotoIds)];
-          for (const pid of photos) {
+          // The After box (needed) and the Before box (optional). Any photo on the job may go in either box: its own
+          // Before/During/After tag doesn't matter, because people forget to change it (JB, 2026-11-24).
+          const afters = [...new Set(body.fixPhotoIds)];
+          const before = body.beforePhotoId && !afters.includes(body.beforePhotoId) ? body.beforePhotoId : null;
+          if (!afters.length) throw new HttpError("validation_failed", "Add an After photo of the fix before sending it for review.", [{ path: "fixPhotoIds", issue: "needs an after photo" }]);
+          for (const pid of [...afters, ...(before ? [before] : [])]) {
             const p = await loadVisiblePhoto(tx, ctx, pid);
             if (p.job_id !== r.job_id) throw new HttpError("validation_failed", "Fix photos must be on the same job.", [{ path: "fixPhotoIds", issue: "other job" }]);
           }
-          // An "After" photo of the fix is required (JB, 2026-11-23); a "Before" photo is optional.
-          const { rowCount: afters } = await tx.query("SELECT 1 FROM photos WHERE id = ANY($1::uuid[]) AND stage = 'after'", [photos]);
-          if (!afters) throw new HttpError("validation_failed", "Add an After photo of the fix before sending it for review.", [{ path: "fixPhotoIds", issue: "needs an after photo" }]);
           await set("status = 'awaiting_review', submitted_by_membership_id = $2", [me]);
           await addEvent(tx, ctx, issueId, { kind: "submitted", from: r.status, to: "awaiting_review", note, clientRef: ref });
-          for (const pid of photos) await addEvent(tx, ctx, issueId, { kind: "fix_photo_added", photoId: pid });
+          for (const pid of afters) await addEvent(tx, ctx, issueId, { kind: "fix_photo_added", photoId: pid, role: "after" });
+          if (before) await addEvent(tx, ctx, issueId, { kind: "fix_photo_added", photoId: before, role: "before" });
           break;
         }
         case "approve":
