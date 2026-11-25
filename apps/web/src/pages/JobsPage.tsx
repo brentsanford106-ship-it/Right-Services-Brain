@@ -5,6 +5,7 @@ import type { Job } from "@rsb/contracts";
 import { api, ApiRequestError } from "../lib/api";
 import { useCan, useOrgId, useOrgQuery } from "../lib/hooks";
 import { pretty, Status } from "../components/ui";
+import { Icon } from "../components/icons";
 import { JobForm, type JobFormValues } from "../components/JobForm";
 
 export function JobsPage() {
@@ -29,7 +30,7 @@ export function JobsPage() {
     <>
       <div className="headrow">
         <h1>Jobs</h1>
-        {canManage && !creating && <button className="primary" onClick={() => setCreating(true)}>+ New job</button>}
+        {canManage && !creating && <button className="primary" onClick={() => setCreating(true)}><Icon name="plus" /> New job</button>}
       </div>
       {creating && (
         <div className="card">
@@ -37,7 +38,7 @@ export function JobsPage() {
           <JobForm submitLabel="Create job" busy={create.isPending} error={createError} onSubmit={(v) => create.mutate(v)} onCancel={() => setCreating(false)} />
         </div>
       )}
-      <input className="search" type="search" placeholder="Search by job number, job name, or site" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search jobs" />
+      <div className="searchbox"><Icon name="search" /><input className="search" type="search" placeholder="Search by job number, job name, or site" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search jobs" /></div>
       <Status query={list}>
         {(d) =>
           d.items.length === 0 ? (
@@ -50,10 +51,10 @@ export function JobsPage() {
               <tbody>
                 {d.items.map((j) => (
                   <tr key={j.id}>
-                    <td><Link to={`/orgs/${orgId}/jobs/${j.id}`}>{j.jobNumber}</Link></td>
-                    <td>{j.title}</td>
-                    <td>{j.siteName ?? "—"}</td>
-                    <td><span className={`pill ${j.status}`}>{pretty(j.status)}</span></td>
+                    <td><Link className="jobnum" to={`/orgs/${orgId}/jobs/${j.id}`}>{j.jobNumber}</Link></td>
+                    <td><strong>{j.title}</strong></td>
+                    <td className="muted">{j.siteName ?? "—"}</td>
+                    <td><span className={`pill status ${j.status}`}>{pretty(j.status)}</span></td>
                   </tr>
                 ))}
               </tbody>

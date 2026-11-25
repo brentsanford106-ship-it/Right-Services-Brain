@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Icon } from "./icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { IssueAction, JobPerson, Photo, PhotoIssue, PhotoIssueEvent } from "@rsb/contracts";
 import { api, ApiRequestError } from "../lib/api";
@@ -106,7 +107,7 @@ export function IssueCard({ issue, onChanged, onOpenPhoto, markName, onShowMark,
   return (
     <div className={`issue ${i.status}`} data-testid="issue">
       <div className="ihead">
-        <strong className="ititle">🔧 {i.title}</strong>
+        <strong className="ititle"><Icon name="wrench" size={15} /> {i.title}</strong>
         <IssueStatusBadge issue={i} />
       </div>
       {i.details && <p className="small idetails">{i.details}</p>}
@@ -281,7 +282,7 @@ export function IssuesPanel({ photoId, jobId, marks = [], aboutMark = null, onSh
     <section className="issues" aria-label="Issues to fix">
       <div className="ihead">
         <div className="label">To fix{active ? ` (${active})` : ""}</div>
-        {canReport && !reporting && <button onClick={() => setReporting(true)}>🔧 Report issue{aboutMark ? ` about the ${aboutMark.name}` : ""}</button>}
+        {canReport && !reporting && <button onClick={() => setReporting(true)}><Icon name="wrench" /> Report issue{aboutMark ? ` about the ${aboutMark.name}` : ""}</button>}
       </div>
       {q.isError && <p className="error small">Issues couldn't be loaded.</p>}
       {reporting && <ReportForm photoId={photoId} jobId={jobId} aboutMark={aboutMark} onCancel={() => setReporting(false)} onDone={async () => { setReporting(false); await refresh(); }} />}

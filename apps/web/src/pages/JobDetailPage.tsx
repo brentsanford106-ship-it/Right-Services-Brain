@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Icon } from "../components/icons";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { DeletedPhoto, Job, Photo, PhotoIssue } from "@rsb/contracts";
@@ -80,20 +81,23 @@ export function JobDetailPage() {
     <Status query={job}>
       {(j) => (
         <>
-          <div className="headrow">
-            <h1>{j.jobNumber} · {j.title}</h1>
-            {canManage && !editing && <button onClick={() => setEditing(true)}>Edit job</button>}
+          <div className="jobhead">
+            <div className="headrow">
+              <h1>{j.jobNumber} · {j.title}</h1>
+              {canManage && !editing && <button onClick={() => setEditing(true)}><Icon name="edit" /> Edit job</button>}
+            </div>
+            {!editing && (
+              <dl className="facts">
+                <dt>Status</dt><dd><span className={`pill status ${j.status}`}>{pretty(j.status)}</span></dd>
+                <dt>Site</dt><dd>{j.siteName ?? "—"}</dd>
+                <dt>Address</dt><dd>{j.siteAddress ?? "—"}</dd>
+              </dl>
+            )}
           </div>
-          {editing ? (
+          {editing && (
             <div className="card">
               <JobForm editing initial={{ ...j }} submitLabel="Save" busy={save.isPending} error={save.error instanceof ApiRequestError ? save.error.message : save.error ? "Couldn't save." : null} onSubmit={(v) => save.mutate(v)} onCancel={() => setEditing(false)} />
             </div>
-          ) : (
-            <dl className="facts">
-              <dt>Status</dt><dd>{pretty(j.status)}</dd>
-              <dt>Site</dt><dd>{j.siteName ?? "—"}</dd>
-              <dt>Address</dt><dd>{j.siteAddress ?? "—"}</dd>
-            </dl>
           )}
           {(issues.data?.items?.length ?? 0) > 0 && (
             <section aria-label="Issues on this job">

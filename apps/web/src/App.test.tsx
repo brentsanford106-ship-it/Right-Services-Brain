@@ -88,7 +88,7 @@ describe("web dashboard", () => {
     expect(screen.getAllByRole("button", { name: /Open .* photo/ }).length).toBe(1);
     fireEvent.click(screen.getByRole("button", { name: /All/ }));
     fireEvent.click(screen.getAllByRole("button", { name: /Open Before photo/ })[0]!);
-    fireEvent.click(await screen.findByRole("button", { name: "⚑ Flag this photo" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Flag this photo" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     const patch = calls.find((c) => c.method === "PATCH")!;
     expect(patch.url).toMatch(/\/v1\/orgs\/o\/photos\/p1$/);
@@ -329,7 +329,7 @@ describe("web dashboard", () => {
     await screen.findByTitle("1 to fix");
     fireEvent.click(screen.getByRole("button", { name: /Open After photo/ }));
     const v2 = await screen.findByRole("dialog");
-    fireEvent.click(await screen.findByRole("button", { name: "🔧 Report issue" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Report issue" }));
     expect(screen.getByText(/A manager will see this/)).toBeTruthy();
     fireEvent.change(screen.getByRole("textbox", { name: "What needs fixing" }), { target: { value: "Missing bolt" } });
     fireEvent.click(Array.from(v2.querySelectorAll("button")).find((b) => b.textContent === "Report issue")!);
@@ -366,7 +366,7 @@ describe("web dashboard", () => {
     renderApp("/orgs/o");
     // The Overview page has its own "Your alerts" section with the same alerts.
     const section = await screen.findByRole("region", { name: "Your alerts" });
-    expect(await within(section).findByRole("heading", { name: "🔔 Your alerts (2 new)" })).toBeTruthy();
+    expect(await within(section).findByRole("heading", { name: "Your alerts (2 new)" })).toBeTruthy();
     expect(within(section).getByText("Morgan Manager assigned you “Missing bolt” on HP-1001")).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Alerts, 2 new" }));
     const menu = screen.getByRole("dialog", { name: "Alerts" });

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { ApiRequestError } from "../lib/api";
+import { Icon, type IconName } from "./icons";
 
 export function DevBanner() {
   return (
@@ -22,11 +23,15 @@ export function Status<T>({ query, children }: { query: UseQueryResult<T>; child
   return <>{children(query.data)}</>;
 }
 
-export function Card({ title, value }: { title: string; value: ReactNode }) {
+/** A number tile on the Overview page, with an optional icon in a coloured square. */
+export function Card({ title, value, icon, tone = "brand" }: { title: string; value: ReactNode; icon?: IconName; tone?: "brand" | "info" | "flag" | "warn" | "ok" }) {
   return (
-    <div className="card">
-      <div className="muted">{title}</div>
-      <div className="big">{value}</div>
+    <div className="card kpi">
+      {icon && <span className={`kpi-icon ${tone}`}><Icon name={icon} size={22} /></span>}
+      <div>
+        <div className="big">{value}</div>
+        <div className="muted small kpi-label">{title}</div>
+      </div>
     </div>
   );
 }

@@ -46,7 +46,8 @@ export default function RootLayout() {
             headerTransparent: false,
             headerStyle: { backgroundColor: C.card },
             headerTintColor: C.link,
-            headerTitleStyle: { color: C.ink },
+            headerTitleStyle: { color: C.text, fontWeight: "700" },
+            headerShadowVisible: false,
             contentStyle: { backgroundColor: C.bg },
             headerUserInterfaceStyle: scheme,
             // iOS 26 blurs/dims scroll content near the header; with a solid header it only hid
@@ -55,7 +56,7 @@ export default function RootLayout() {
           }}
         >
           <Stack.Screen name="index" options={{ headerShown: false }} />
-          <Stack.Screen name="login" options={{ title: "Sign in" }} />
+          <Stack.Screen name="login" options={{ title: "Sign in", headerShown: false }} />
           <Stack.Screen name="home" options={{ title: "Home" }} />
           <Stack.Screen name="jobs/index" options={{ title: "Jobs" }} />
           <Stack.Screen name="jobs/edit" options={{ title: "Job", presentation: "modal" }} />

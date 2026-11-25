@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Icon } from "./icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Photo } from "@rsb/contracts";
 import { api, ApiRequestError, fetchImage } from "../lib/api";
@@ -14,9 +15,9 @@ export const FILTERS: { value: Filter; label: string }[] = [
   { value: "before", label: "Before" },
   { value: "during", label: "During" },
   { value: "after", label: "After" },
-  { value: "flagged", label: "⚑ Flagged" },
-  { value: "comments", label: "💬 Comments" },
-  { value: "issues", label: "🔧 To fix" },
+  { value: "flagged", label: "Flagged" },
+  { value: "comments", label: "Comments" },
+  { value: "issues", label: "To fix" },
 ];
 export const STAGES = [
   { value: "before", label: "Before" },
@@ -243,11 +244,11 @@ export function PhotoGrid({ items, onOpen, showJob, selected, onToggle }: { item
           >
             {selected && <span className={`pick ${selected.has(p.id) ? "on" : ""}`} aria-hidden>{selected.has(p.id) ? "✓" : ""}</span>}
             {p.hasPreview ? <AuthImage path={`/v1/orgs/${orgId}/photos/${p.id}/content?variant=thumb`} alt="" className="thumb" /> : <div className="imgph thumb">No picture</div>}
-            {p.flagged && <span className="flagmark" aria-hidden>⚑</span>}
+            {p.flagged && <span className="flagmark" aria-hidden><Icon name="flag" size={14} /></span>}
             {(p.commentCount > 0 || p.openIssueCount > 0) && (
               <span className="marksrow">
-                {p.openIssueCount > 0 && <span className="issuemark" title={`${p.openIssueCount} to fix`}>🔧 {p.openIssueCount}</span>}
-                {p.commentCount > 0 && <span className="commentmark" title={`${p.commentCount} comment${p.commentCount === 1 ? "" : "s"}`}>💬 {p.commentCount}</span>}
+                {p.openIssueCount > 0 && <span className="issuemark" title={`${p.openIssueCount} to fix`}><Icon name="wrench" size={11} /> {p.openIssueCount}</span>}
+                {p.commentCount > 0 && <span className="commentmark" title={`${p.commentCount} comment${p.commentCount === 1 ? "" : "s"}`}><Icon name="message" size={11} /> {p.commentCount}</span>}
               </span>
             )}
             <PersonBadge id={p.photographerId} name={p.photographer} avatarAt={p.photographerAvatarAt} className="onthumb" />
@@ -416,7 +417,7 @@ export function Lightbox({ items, index, onIndex, onClose, invalidate }: { items
           {p.widthPx && <><dt>Size</dt><dd>{p.widthPx} × {p.heightPx}</dd></>}
         </dl>
         <button className={`flagbtn ${p.flagged ? "on" : ""}`} disabled={!canManage || update.isPending} onClick={() => update.mutate({ flagged: !p.flagged })}>
-          {p.flagged ? "⚑ Flagged — click to unflag" : "⚑ Flag this photo"}
+          <Icon name="flag" /> {p.flagged ? "Flagged — click to unflag" : "Flag this photo"}
         </button>
         <div>
           <div className="label">Stage</div>

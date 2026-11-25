@@ -174,7 +174,8 @@ export default function Review() {
           {item.local?.lastError ? <Text style={s.error}>{item.local.lastError}</Text> : null}
 
           <Button
-            title={item.flagged ? "⚑  Flagged — tap to unflag" : "⚑  Flag this photo"}
+            title={item.flagged ? "Flagged — tap to unflag" : "Flag this photo"}
+            icon="flag"
             kind={item.flagged ? "danger" : "secondary"}
             disabled={!canEdit || saving}
             onPress={() => void change({ flagged: !item.flagged })}

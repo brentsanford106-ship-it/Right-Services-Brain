@@ -11,7 +11,10 @@ import type { Location as PhotoLocation, QueuedPhoto, Stage } from "@rsb/photo-s
 import { useApp, useQueueVersion } from "../../../src/state";
 import { LocalImage } from "../../../src/photos";
 import { deleteQuietly } from "../../../src/platform";
-import { Button, C, STAGES } from "../../../src/ui";
+import { Button, C, Icon, PhotoShade, STAGES } from "../../../src/ui";
+
+/** Dark see-through panel used for every control floating over the camera picture. */
+const GLASS = { backgroundColor: "rgba(18,18,22,0.55)", borderWidth: 1, borderColor: "rgba(255,255,255,0.16)" } as const;
 
 const THUMB_WIDTH = 360;
 
@@ -133,7 +136,7 @@ export default function Camera() {
   if (!permission.granted) {
     return (
       <View style={{ flex: 1, backgroundColor: C.bg, padding: 24, justifyContent: "center", gap: 16 }}>
-        <Text style={{ fontSize: 20, fontWeight: "700" }}>Camera access needed</Text>
+        <Text style={{ fontSize: 22, fontWeight: "800", color: C.text }}>Camera access needed</Text>
         <Text style={{ color: C.muted }}>The app needs the camera to take job photos.</Text>
         {permission.canAskAgain ? (
           <Button title="Allow camera" onPress={() => void requestPermission()} />
@@ -152,31 +155,39 @@ export default function Camera() {
       {/* Top bar: job, stage, done */}
       <View style={{ position: "absolute", top: insets.top + 8, left: 12, right: 12 }}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-          <View style={{ backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 }}>
+          <View style={{ ...GLASS, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 14 }}>
             <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16 }}>{jobNumber}</Text>
-            <Text style={{ color: "#ddd", fontSize: 12 }}>
-              {count} taken{saving ? " · saving…" : ""} · GPS {gps === "on" ? "on" : gps === "off" ? "off" : "…"}
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 1 }}>
+              <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: gps === "on" ? "#34d399" : gps === "off" ? "#9ca3af" : "#fbbf24" }} />
+              <Text style={{ color: "#e5e7eb", fontSize: 12 }}>
+                GPS {gps === "on" ? "on" : gps === "off" ? "off" : "…"} · {count} taken{saving ? " · saving…" : ""}
+              </Text>
+            </View>
           </View>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={{ backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 }}>
+          <Pressable onPress={() => router.back()} hitSlop={12} style={{ ...GLASS, paddingHorizontal: 18, paddingVertical: 11, borderRadius: 14 }}>
             <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>Done</Text>
           </Pressable>
         </View>
-        <View style={{ flexDirection: "row", marginTop: 10, alignSelf: "center", backgroundColor: "rgba(0,0,0,0.55)", borderRadius: 20, padding: 4 }}>
+        <View style={{ ...GLASS, flexDirection: "row", marginTop: 12, alignSelf: "center", borderRadius: 999, padding: 4 }}>
           {STAGES.map((st) => (
             <Pressable
               key={st.value}
               onPress={() => setStage(st.value)}
               accessibilityState={{ selected: stage === st.value }}
-              style={{ paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16, backgroundColor: stage === st.value ? "#fff" : "transparent" }}
+              style={{ paddingHorizontal: 18, paddingVertical: 8, borderRadius: 999, backgroundColor: stage === st.value ? "#fff" : "transparent" }}
             >
               <Text style={{ fontWeight: "700", color: stage === st.value ? "#000" : "#fff" }}>{st.label}</Text>
             </Pressable>
           ))}
         </View>
         {error ? (
-          <Text style={{ marginTop: 10, color: "#fff", backgroundColor: C.flag, padding: 8, borderRadius: 8, textAlign: "center" }}>{error}</Text>
+          <Text style={{ marginTop: 10, color: "#fff", backgroundColor: C.flag, padding: 10, borderRadius: 12, overflow: "hidden", textAlign: "center", fontWeight: "600" }}>{error}</Text>
         ) : null}
+      </View>
+
+      {/* Soft dark fade behind the bottom buttons so they stand out on bright pictures. */}
+      <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: insets.bottom + 150 }}>
+        <PhotoShade strength={0.65} />
       </View>
 
       {/* Bottom bar: latest thumbnail, shutter, flag latest */}
@@ -185,9 +196,9 @@ export default function Camera() {
           disabled={!latest}
           onPress={() => latest && router.push({ pathname: "/photo/[key]", params: { key: `l:${latest.localId}`, jobId } })}
           accessibilityLabel="Review latest photo"
-          style={{ width: 64, height: 64, borderRadius: 10, borderWidth: 2, borderColor: latest?.flagged ? C.flag : "#fff", overflow: "hidden", backgroundColor: "#222" }}
+          style={{ width: 64, height: 64, borderRadius: 16, borderWidth: 2, borderColor: latest?.flagged ? C.flag : "#fff", overflow: "hidden", backgroundColor: "#222" }}
         >
-          {latest ? <LocalImage key={latest.localId} localId={latest.localId} which="thumbnail" style={{ width: 60, height: 60 }} /> : null}
+          {latest ? <LocalImage key={latest.localId} localId={latest.localId} which="thumbnail" style={{ width: 60, height: 60, borderRadius: 14 }} /> : null}
         </Pressable>
 
         <Pressable
@@ -209,14 +220,15 @@ export default function Camera() {
             borderRadius: 32,
             alignItems: "center",
             justifyContent: "center",
-            backgroundColor: latest?.flagged ? C.flag : "rgba(0,0,0,0.55)",
-            borderWidth: 2,
-            borderColor: latest?.flagged ? C.flag : "#fff",
+            ...GLASS,
+            backgroundColor: latest?.flagged ? C.flag : GLASS.backgroundColor,
+            borderWidth: latest?.flagged ? 2 : 1,
+            borderColor: latest?.flagged ? "#fff" : GLASS.borderColor,
             opacity: latest ? 1 : 0.35,
           }}
         >
-          <Text style={{ color: "#fff", fontSize: 26, fontWeight: "900" }}>⚑</Text>
-          <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>{latest?.flagged ? "FLAGGED" : "FLAG"}</Text>
+          <Icon name="flag" size={22} color="#fff" strokeWidth={2.2} />
+          <Text style={{ color: "#fff", fontSize: 9.5, fontWeight: "800", letterSpacing: 0.6, marginTop: 2 }}>{latest?.flagged ? "FLAGGED" : "FLAG"}</Text>
         </Pressable>
       </View>
     </View>

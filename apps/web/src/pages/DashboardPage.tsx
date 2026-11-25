@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Icon } from "../components/icons";
 import { Link, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import type { DashboardResponse, Photo, PhotoIssue } from "@rsb/contracts";
@@ -22,21 +23,24 @@ export function DashboardPage() {
   const openPhoto = (photoId: string, jobId: string) => navigate(`/orgs/${orgId}/jobs/${jobId}?photo=${photoId}`);
   return (
     <>
-      <h1>Overview</h1>
+      <div className="pagehead">
+        <h1>Overview</h1>
+        <p className="muted">{new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>
+      </div>
       <Status query={d}>
         {(x) => (
           <div className="cards">
-            <Card title="Active jobs" value={<Link to={`/orgs/${orgId}/jobs`}>{x.activeJobs}</Link>} />
-            <Card title="Photos in the last 7 days" value={x.photosLast7Days} />
-            <Card title="Flagged photos" value={x.flaggedPhotos} />
-            <Card title="Waiting for file from a phone" value={x.photosAwaitingUpload} />
+            <Card icon="briefcase" title="Active jobs" value={<Link to={`/orgs/${orgId}/jobs`}>{x.activeJobs}</Link>} />
+            <Card icon="camera" tone="info" title="Photos in the last 7 days" value={x.photosLast7Days} />
+            <Card icon="flag" tone="flag" title="Flagged photos" value={x.flaggedPhotos} />
+            <Card icon="cloudUp" tone="warn" title="Waiting for file from a phone" value={x.photosAwaitingUpload} />
           </div>
         )}
       </Status>
       <AlertsSection />
       {(mine.data?.items?.length ?? 0) > 0 && (
         <section aria-label="Assigned to me">
-          <h2>🔧 Assigned to me ({mine.data!.items.length})</h2>
+          <h2><Icon name="wrench" /> Assigned to me ({mine.data!.items.length})</h2>
           <IssueList items={mine.data!.items} groups={false} empty="" onChanged={refresh} onOpenPhoto={openPhoto} />
         </section>
       )}

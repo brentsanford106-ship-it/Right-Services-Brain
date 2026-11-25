@@ -6,6 +6,7 @@ import { ALERT_KINDS, alertAge, alertText, type AlertKind } from "@rsb/photo-syn
 import { api } from "../lib/api";
 import { useCan, useOrgId } from "../lib/hooks";
 import { PersonBadge } from "./photos";
+import { Icon } from "./icons";
 
 type List = { items: Notification[]; unreadCount: number };
 
@@ -65,7 +66,7 @@ export function AlertsBell() {
   return (
     <div className="bell" ref={box}>
       <button className="bellbtn" aria-label={unread ? `Alerts, ${unread} new` : "Alerts"} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        🔔{unread > 0 && <span className="bellcount">{unread > 99 ? "99+" : unread}</span>}
+        <Icon name="bell" size={20} />{unread > 0 && <span className="bellcount">{unread > 99 ? "99+" : unread}</span>}
       </button>
       {open && (
         <div className="bellmenu" role="dialog" aria-label="Alerts">
@@ -89,13 +90,13 @@ export function AlertsSection({ max = 8 }: { max?: number }) {
   return (
     <section aria-label="Your alerts" className="alertsection">
       <div className="bellhead">
-        <h2>🔔 Your alerts{unread > 0 ? ` (${unread} new)` : ""}</h2>
+        <h2><Icon name="bell" /> Your alerts{unread > 0 ? ` (${unread} new)` : ""}</h2>
         {unread > 0 && <button className="link small" onClick={() => read.mutate({ all: true })}>Mark all read</button>}
       </div>
       {q.isError && <p className="error small">Alerts couldn't be loaded.</p>}
       {q.data && !items.length && <p className="muted small">{EMPTY}</p>}
       <AlertItems items={shown} onOpen={go} />
-      {items.length > shown.length && <p className="muted small">Older alerts are under 🔔 at the top of the page.</p>}
+      {items.length > shown.length && <p className="muted small">Older alerts are under the bell at the top of the page.</p>}
     </section>
   );
 }
@@ -115,7 +116,7 @@ export function AlertSettings() {
   return (
     <section aria-label="Alerts">
       <h2>Alerts</h2>
-      <p className="muted small">Shown under 🔔 at the top of the page and on the phone's Home screen. Only for jobs you can see.</p>
+      <p className="muted small">Shown under the bell at the top of the page and on the phone's Home screen. Only for jobs you can see.</p>
       {q.isError && <p className="error small">Couldn't load your alert settings.</p>}
       {q.data && (
         <ul className="alertsettings">

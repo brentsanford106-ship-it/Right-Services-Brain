@@ -6,7 +6,7 @@ import { ApiError, ISSUE_EVENT_LABEL, type PendingAction, ISSUE_STATUS_LABEL, Ne
 import { useActionsVersion, useApp, useQueueVersion } from "./state";
 import { LocalImage, ServerImage, type ServerPhoto } from "./photos";
 import { importFromLibrary } from "./importPhotos";
-import { Button, C, s } from "./ui";
+import { Button, C, Icon, s } from "./ui";
 
 /** An issue as the server sends it (see the API's PhotoIssue). */
 export interface ServerIssue {
@@ -277,7 +277,8 @@ export function IssueCard({ issue, onChanged, markName, onShowMark, showPhotoLin
   return (
     <View style={[s.card, { gap: 6, borderLeftWidth: 4, borderLeftColor: TONE[i.status] }]} accessibilityLabel={`Issue: ${i.title}, ${issueStatusText(i)}`}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Text style={{ flex: 1, fontWeight: "700", color: C.text, fontSize: 16 }}>🔧 {i.title}</Text>
+        <Icon name="wrench" size={16} color={TONE[i.status]} />
+        <Text style={{ flex: 1, fontWeight: "700", color: C.text, fontSize: 16 }}>{i.title}</Text>
         <IssueStatusPill issue={i} />
       </View>
       {i.details ? <Text style={{ color: C.text }}>{i.details}</Text> : null}
@@ -449,7 +450,10 @@ export function PhotoIssues({ jobId, serverId, marks = [], aboutMark = null, onS
         <Text style={s.label}>To fix{active ? ` (${active})` : ""}</Text>
         {canReport && !reporting ? (
           <Pressable onPress={() => setReporting(true)} hitSlop={8} accessibilityRole="button">
-            <Text style={{ color: C.link, fontWeight: "700" }}>🔧 Report issue{aboutMark ? ` about the ${aboutMark.name}` : ""}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <Icon name="wrench" size={15} color={C.link} />
+              <Text style={{ color: C.link, fontWeight: "700" }}>Report issue{aboutMark ? ` about the ${aboutMark.name}` : ""}</Text>
+            </View>
           </Pressable>
         ) : null}
       </View>

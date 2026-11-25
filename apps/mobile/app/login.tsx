@@ -1,11 +1,17 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Alert, FlatList, Pressable, Text, TextInput, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
+import { setStatusBarStyle } from "expo-status-bar";
+import { useTheme } from "../src/theme";
 import { ApiError, NetworkError, OwnerMismatchError } from "@rsb/photo-sync";
 import { fetch as expoFetch } from "expo/fetch";
 import { useApp, type PendingInvite, type SignInResult } from "../src/state";
 import { entraConfig } from "../src/entra";
-import { Button, C, DevBanner, Logo, s } from "../src/ui";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BRAND, Button, C, DevBanner, Icon, LogoPlate, R, s } from "../src/ui";
+
+/** The sign-in screen is always dark (brand look), whatever the phone's Light/Dark setting. */
+const D = { bg: "#121418", text: "#ffffff", muted: "rgba(255,255,255,0.66)", panel: "rgba(255,255,255,0.06)", border: "rgba(255,255,255,0.12)" } as const;
 
 interface DevUser {
   subject: string;
@@ -21,6 +27,8 @@ interface DevUser {
  */
 export default function Login() {
   const app = useApp();
+  const insets = useSafeAreaInsets();
+  const { scheme } = useTheme();
   const [address, setAddress] = useState(app.server);
   useEffect(() => setAddress(app.server), [app.server]);
   const [users, setUsers] = useState<DevUser[] | null>(null);
@@ -28,6 +36,14 @@ export default function Login() {
   const [busy, setBusy] = useState<string | null>(null);
   const [orgs, setOrgs] = useState<{ organizationId: string; organizationName: string }[] | null>(null);
   const [invites, setInvites] = useState<PendingInvite[]>([]);
+  const dark = invites.length === 0 && !orgs; // the invite and company screens follow the phone's theme
+  // White clock/battery on the dark sign-in screen; back to the normal colour when leaving.
+  useFocusEffect(
+    useCallback(() => {
+      setStatusBarStyle(dark || scheme === "dark" ? "light" : "dark");
+      return () => setStatusBarStyle(scheme === "dark" ? "light" : "dark");
+    }, [dark, scheme]),
+  );
 
   const loadUsers = useCallback(async () => {
     setError(null);
@@ -145,7 +161,7 @@ export default function Login() {
 
   if (invites.length > 0) {
     return (
-      <View style={s.screen}>
+      <View style={[s.screen, { paddingTop: insets.top }]}>
         <DevBanner />
         <View style={{ padding: 16 }}>
           <Text style={s.h1}>You've been added</Text>
@@ -185,7 +201,7 @@ export default function Login() {
 
   if (orgs) {
     return (
-      <View style={s.screen}>
+      <View style={[s.screen, { paddingTop: insets.top }]}>
         <DevBanner />
         <View style={{ padding: 16 }}>
           <Text style={s.h1}>Choose a company</Text>
@@ -199,47 +215,54 @@ export default function Login() {
   }
 
   return (
-    <View style={s.screen}>
+    <View style={{ flex: 1, backgroundColor: D.bg, paddingTop: insets.top }}>
       <DevBanner />
       <FlatList
-        contentContainerStyle={{ padding: 16, paddingBottom: 48 }}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ padding: 22, paddingBottom: insets.bottom + 40 }}
         ListHeaderComponent={
           <View>
-            <View style={{ alignItems: "center", backgroundColor: "#fff", borderRadius: 14, paddingVertical: 14, marginBottom: 20 }}>
-              <Logo height={72} />
-            </View>
-            {app.notice ? <Text style={[s.muted, { marginBottom: 12 }]}>{app.notice}</Text> : null}
-            {real ? (
-              <View style={{ marginBottom: 28 }}>
-                <Text style={s.h1}>Sign in</Text>
-                <Text style={[s.muted, { marginTop: 6 }]}>Use the email address your company owner added. Microsoft will send you a code.</Text>
-                <Button title="Sign in" busy={busy === "real"} disabled={!!busy} style={{ marginTop: 14 }} onPress={() => void signInReal()} />
+            <LogoPlate height={70} style={{ alignSelf: "center", marginTop: 18, borderRadius: R.xl, boxShadow: "0 18px 40px rgba(0,0,0,0.45)" }} />
+            <Text style={{ fontSize: 30, fontWeight: "800", color: D.text, textAlign: "center", marginTop: 30, letterSpacing: -0.5 }}>Welcome</Text>
+            <Text style={{ color: D.muted, textAlign: "center", marginTop: 6, fontSize: 15, lineHeight: 21 }}>
+              {real ? "Use the email address your company owner added. Microsoft will send you a code." : "Sign in to see your jobs and take photos."}
+            </Text>
+            {app.notice ? (
+              <View style={{ backgroundColor: D.panel, borderColor: D.border, borderWidth: 1, borderRadius: R.md, padding: 12, marginTop: 16 }}>
+                <Text style={{ color: D.text }}>{app.notice}</Text>
               </View>
             ) : null}
-            <Text style={s.h1}>Development sign-in</Text>
-            <Text style={[s.muted, { marginTop: 6 }]}>Pick a made-up test person. This is only for testing and is not secure.</Text>
-            <Text style={[s.label, { marginTop: 18 }]}>Server address (your PC)</Text>
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <TextInput
-                style={[s.input, { flex: 1 }]}
-                value={address}
-                onChangeText={setAddress}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="url"
-                placeholder="http://192.168.1.20:4000" placeholderTextColor={C.muted}
-              />
-              <Button
-                kind="secondary"
-                title="Connect"
-                onPress={() => {
-                  app.setServer(address).catch((e: Error) => setError(e.message));
-                }}
-              />
+            {real ? <Button title="Sign in with Microsoft" busy={busy === "real"} disabled={!!busy} style={{ marginTop: 24 }} onPress={() => void signInReal()} /> : null}
+
+            <View style={{ backgroundColor: D.panel, borderColor: D.border, borderWidth: 1, borderRadius: R.lg, padding: 16, marginTop: 26 }}>
+              <Text style={{ color: D.text, fontSize: 16, fontWeight: "700" }}>Development sign-in</Text>
+              <Text style={{ color: D.muted, marginTop: 4, fontSize: 13.5, lineHeight: 19 }}>Pick a made-up test person. This is only for testing and is not secure.</Text>
+              <Text style={{ color: D.muted, fontSize: 12, fontWeight: "700", letterSpacing: 0.6, marginTop: 16, marginBottom: 6 }}>SERVER ADDRESS (YOUR PC)</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <TextInput
+                  style={{ flex: 1, minHeight: 46, borderRadius: R.md, paddingHorizontal: 12, fontSize: 15, color: D.text, backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: D.border }}
+                  value={address}
+                  onChangeText={setAddress}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                  keyboardAppearance="dark"
+                  placeholder="http://192.168.1.20:4000" placeholderTextColor="rgba(255,255,255,0.4)"
+                />
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    app.setServer(address).catch((e: Error) => setError(e.message));
+                  }}
+                  style={({ pressed }) => ({ minHeight: 46, paddingHorizontal: 16, borderRadius: R.md, backgroundColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
+                >
+                  <Text style={{ color: D.text, fontWeight: "700" }}>Connect</Text>
+                </Pressable>
+              </View>
+              {error ? <Text style={{ color: "#ff8a80", fontWeight: "600", marginTop: 12 }}>{error}</Text> : null}
+              {!users && !error ? <Text style={{ color: D.muted, marginTop: 12 }}>Connecting…</Text> : null}
+              {users ? <Text style={{ color: D.muted, fontSize: 12, fontWeight: "700", letterSpacing: 0.6, marginTop: 18 }}>TEST PEOPLE</Text> : null}
             </View>
-            {error ? <Text style={[s.error, { marginTop: 12 }]}>{error}</Text> : null}
-            {!users && !error ? <Text style={[s.muted, { marginTop: 12 }]}>Connecting…</Text> : null}
-            {users ? <Text style={[s.label, { marginTop: 20 }]}>Test people</Text> : null}
           </View>
         }
         data={users ?? []}
@@ -248,12 +271,39 @@ export default function Login() {
           <Pressable
             onPress={() => void pick(item)}
             disabled={!!busy}
-            style={({ pressed }) => [s.card, { marginBottom: 10, opacity: pressed || busy === item.subject ? 0.6 : 1 }]}
+            style={({ pressed }) => ({
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 12,
+              marginTop: 10,
+              padding: 14,
+              borderRadius: R.lg,
+              backgroundColor: D.panel,
+              borderWidth: 1,
+              borderColor: D.border,
+              opacity: pressed || busy === item.subject ? 0.6 : 1,
+            })}
           >
-            <Text style={{ fontSize: 16, fontWeight: "600", color: C.text }}>{item.displayName}</Text>
-            <Text style={[s.muted, { marginTop: 2 }]}>{item.description}</Text>
+            <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: BRAND.colors.primary, alignItems: "center", justifyContent: "center" }}>
+              <Text style={{ color: "#fff", fontWeight: "800", fontSize: 13 }}>
+                {item.displayName
+                  .split(" ")
+                  .map((w) => w[0])
+                  .join("")
+                  .slice(0, 2)
+                  .toUpperCase()}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 16, fontWeight: "700", color: D.text }}>{item.displayName}</Text>
+              <Text style={{ color: D.muted, marginTop: 2, fontSize: 13 }}>{item.description}</Text>
+            </View>
+            <Icon name="chevronRight" size={18} color="rgba(255,255,255,0.4)" />
           </Pressable>
         )}
+        ListFooterComponent={
+          <Text style={{ color: "rgba(255,255,255,0.38)", textAlign: "center", fontSize: 11.5, letterSpacing: 0.8, marginTop: 32 }}>{BRAND.tagline.toUpperCase()}</Text>
+        }
       />
     </View>
   );

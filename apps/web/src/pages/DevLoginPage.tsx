@@ -4,6 +4,8 @@ import { useState, useSyncExternalStore } from "react";
 import { api, ApiRequestError, session } from "../lib/api";
 import { entraConfig, startSignIn } from "../lib/entra";
 import { DevBanner, Status } from "../components/ui";
+import { Icon } from "../components/icons";
+import { BRAND } from "../brand";
 
 /**
  * Sign-in page. "Sign in" (shown once the VITE_ENTRA_* settings exist) goes to Microsoft's real sign-in.
@@ -35,37 +37,44 @@ export function DevLoginPage() {
     }
   };
   return (
-    <div className="shell center">
+    <div className="signin">
       <DevBanner />
-      <main className="login">
-        <div className="brandbox"><img src="/logo.png" alt="Right Services" className="logo-full" /></div>
-        {notice && <p className="error" role="alert">{notice}</p>}
-        {real && (
-          <section style={{ marginBottom: 28 }}>
-            <h1>Sign in</h1>
-            <p className="muted">Use the email address your company owner added. Microsoft will send you a code.</p>
-            <button className="primary" disabled={leaving} onClick={() => void goReal()}>{leaving ? "Opening Microsoft…" : "Sign in"}</button>
-          </section>
-        )}
-        <h1>Development sign-in</h1>
-        <p className="muted">
-          Pick a fictional user. In production this screen is replaced by Microsoft Entra External ID sign-in.
-        </p>
-        {error && <p className="error" role="alert">{error}</p>}
-        <Status query={users}>
-          {(d) => (
-            <ul className="list">
-              {d.items.map((u) => (
-                <li key={u.subject}>
-                  <button className="row" onClick={() => void signIn(u.subject)}>
-                    <strong>{u.displayName}</strong>
-                    <span className="muted">{u.description}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+      <main className="signin-main">
+        <div className="signin-card">
+          <div className="brandbox"><img src={BRAND.logo} alt={BRAND.name} className="logo-full" /></div>
+          {notice && <p className="error" role="alert">{notice}</p>}
+          {real && (
+            <section className="signin-real">
+              <h1>Sign in</h1>
+              <p className="muted">Use the email address your company owner added. Microsoft will send you a code.</p>
+              <button className="primary big" disabled={leaving} onClick={() => void goReal()}>{leaving ? "Opening Microsoft…" : "Sign in"}</button>
+            </section>
           )}
-        </Status>
+          <h1>Development sign-in</h1>
+          <p className="muted">
+            Pick a fictional user. In production this screen is replaced by Microsoft Entra External ID sign-in.
+          </p>
+          {error && <p className="error" role="alert">{error}</p>}
+          <Status query={users}>
+            {(d) => (
+              <ul className="list">
+                {d.items.map((u) => (
+                  <li key={u.subject}>
+                    <button className="row person-row" onClick={() => void signIn(u.subject)}>
+                      <span className="initials" aria-hidden>{u.displayName.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}</span>
+                      <span className="person-text">
+                        <strong>{u.displayName}</strong>
+                        <span className="muted">{u.description}</span>
+                      </span>
+                      <Icon name="chevronRight" className="chev" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Status>
+        </div>
+        <p className="signin-tagline">{BRAND.tagline}</p>
       </main>
     </div>
   );
