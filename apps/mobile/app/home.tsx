@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Image, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
 import { Stack, router, useFocusEffect } from "expo-router";
 import { useApp, useQueueVersion, useSyncStatus, type Job } from "../src/state";
-import { C, DevBanner, Logo, StatusPill, s } from "../src/ui";
+import { BRAND, BrandGradient, C, DevBanner, HeaderIcon, IconBubble, ListGroup, ListRow, LogoPlate, PhotoShade, R, SectionHeader, s, type IconName } from "../src/ui";
+import { JobCard } from "../src/JobCard";
 
 interface Dashboard {
   activeJobs: number;
@@ -84,82 +85,81 @@ export default function Home() {
 
   const openJob = (j: Job) => router.push({ pathname: "/jobs/[jobId]", params: { jobId: j.id, jobNumber: j.jobNumber, title: j.title } });
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
   return (
     <View style={s.screen}>
       <Stack.Screen
         options={{
           title: "Home",
-          headerRight: () => (
-            <Pressable onPress={() => router.push("/settings")} hitSlop={12}>
-              <Text style={{ color: C.link, fontSize: 16 }}>Settings</Text>
-            </Pressable>
-          ),
+          headerRight: () => <HeaderIcon name="settings" label="Settings" onPress={() => router.push("/settings")} />,
         }}
       />
       <DevBanner />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 48, gap: 14 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}>
-        <View style={{ height: 190, borderRadius: 16, overflow: "hidden", justifyContent: "space-between" }}>
+        {/* Banner: crew photo, logo, and a greeting on a dark fade. */}
+        <View style={{ height: 212, borderRadius: R.xl, overflow: "hidden", backgroundColor: "#111" }}>
           <Image
-            source={require("../assets/brand/hero.jpg")}
+            source={BRAND.hero}
             resizeMode="cover"
             style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" }}
             accessibilityIgnoresInvertColors
           />
-          <View style={{ alignSelf: "flex-end", backgroundColor: "#fff", borderRadius: 10, padding: 6, margin: 12 }}>
-            <Logo height={34} />
-          </View>
-          <View style={{ backgroundColor: "rgba(20,20,24,0.62)", paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 3, borderTopColor: C.brand }}>
-            <Text style={{ fontSize: 22, fontWeight: "700", color: "#fff" }}>Hi, {firstName}</Text>
-            <Text style={{ color: "#e6e8eb", marginTop: 2 }}>{app.session.orgName}</Text>
-          </View>
-        </View>
-
-        <Pressable onPress={() => router.push("/sync")} style={({ pressed }) => ({ backgroundColor: upload.bg, borderRadius: 12, padding: 14, opacity: pressed ? 0.7 : 1 })}>
-          <Text style={{ color: upload.fg, fontWeight: "700", fontSize: 16 }}>{upload.text} ›</Text>
-        </Pressable>
-
-        <Pressable accessibilityRole="button" onPress={() => router.push("/alerts")} style={({ pressed }) => ({ backgroundColor: unread ? "#d40e3b18" : C.card, borderWidth: unread ? 0 : 1, borderColor: C.line, borderRadius: 12, padding: 14, opacity: pressed ? 0.7 : 1 })}>
-          <Text style={{ color: unread ? "#d40e3b" : C.text, fontWeight: unread ? "700" : "500", fontSize: 16 }}>🔔 {unread ? `${unread} new alert${unread > 1 ? "s" : ""}` : "Alerts"} ›</Text>
-        </Pressable>
-
-        {toFix && (toFix.mine || toFix.review) ? (
-          <Pressable accessibilityRole="button" onPress={() => router.push("/issues")} style={({ pressed }) => ({ backgroundColor: "#b4530922", borderRadius: 12, padding: 14, opacity: pressed ? 0.7 : 1 })}>
-            <Text style={{ color: "#b45309", fontWeight: "700", fontSize: 16 }}>
-              🔧 {[toFix.mine ? `${toFix.mine} to fix` : "", toFix.review ? `${toFix.review} waiting for your review` : ""].filter(Boolean).join(" · ")} ›
+          <PhotoShade />
+          <LogoPlate height={26} style={{ position: "absolute", top: 14, left: 14 }} />
+          <View style={{ position: "absolute", left: 18, right: 18, bottom: 18 }}>
+            <Text style={{ fontSize: 27, fontWeight: "800", color: "#fff", letterSpacing: -0.5 }} numberOfLines={1} adjustsFontSizeToFit>
+              {greeting}, {firstName}
             </Text>
-          </Pressable>
-        ) : null}
-
-        <View style={{ flexDirection: "row", gap: 12 }}>
-          <BigAction label="Jobs" sub="Find a job, take photos" onPress={() => router.push("/jobs")} primary />
-          {canManage ? <BigAction label="+ New job" sub="Start a new job" onPress={() => router.push("/jobs/edit")} /> : null}
+            <Text style={{ color: "rgba(255,255,255,0.82)", marginTop: 2, fontSize: 14.5, fontWeight: "500" }}>{app.session.orgName}</Text>
+          </View>
+          <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 4, backgroundColor: C.brand }} />
         </View>
 
         {dash ? (
-          <View style={{ flexDirection: "row", gap: 12 }}>
+          <View style={{ flexDirection: "row", gap: 10 }}>
             <Stat label="Active jobs" value={dash.activeJobs} />
             <Stat label="Photos this week" value={dash.photosLast7Days} />
             <Stat label="Flagged" value={dash.flaggedPhotos} tone={dash.flaggedPhotos ? C.flag : undefined} />
           </View>
         ) : null}
-        {offline ? <Text style={s.muted}>Offline: showing what was saved on this phone.</Text> : null}
+        {offline ? <Text style={[s.muted, { marginHorizontal: 4 }]}>Offline: showing what was saved on this phone.</Text> : null}
+
+        <View style={{ flexDirection: "row", gap: 10 }}>
+          <BigAction icon="camera" label="Jobs & photos" sub="Find a job, take photos" onPress={() => router.push("/jobs")} primary />
+          {canManage ? <BigAction icon="plus" label="New job" sub="Start a new job" onPress={() => router.push("/jobs/edit")} /> : null}
+        </View>
+
+        <ListGroup>
+          <ListRow
+            icon={counts.needsAttention ? "alert" : counts.waiting ? "cloudUp" : "cloudCheck"}
+            iconColor={upload.fg}
+            iconBg={upload.bg}
+            title={upload.text}
+            titleColor={counts.needsAttention ? C.flag : undefined}
+            subtitle={counts.needsAttention || counts.waiting ? "Tap to see uploads" : undefined}
+            onPress={() => router.push("/sync")}
+          />
+          <ListRow icon="bell" title="Alerts" badge={unread ? `${unread} new` : undefined} onPress={() => router.push("/alerts")} accessibilityLabel={unread ? `${unread} new alert${unread > 1 ? "s" : ""}` : "Alerts"} />
+          {toFix && (toFix.mine || toFix.review) ? (
+            <ListRow
+              icon="wrench"
+              iconColor={C.fix}
+              iconBg={C.fixSoft}
+              title="To fix"
+              subtitle={[toFix.mine ? `${toFix.mine} to fix` : "", toFix.review ? `${toFix.review} waiting for your review` : ""].filter(Boolean).join(" · ")}
+              onPress={() => router.push("/issues")}
+            />
+          ) : null}
+        </ListGroup>
 
         {active.length ? (
-          <View style={{ gap: 10 }}>
-            <Text style={s.label}>Active jobs</Text>
+          <View style={{ gap: 10, marginTop: 4 }}>
+            <SectionHeader title="Active jobs" action="See all" onAction={() => router.push("/jobs")} />
             {active.map((j) => (
-              <Pressable key={j.id} onPress={() => openJob(j)} style={({ pressed }) => [s.card, { opacity: pressed ? 0.7 : 1 }]}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                  <Text style={{ fontSize: 16, fontWeight: "700", color: C.text }}>{j.jobNumber}</Text>
-                  <StatusPill status={j.status} />
-                </View>
-                <Text style={{ color: C.text, marginTop: 2 }}>{j.title}</Text>
-                {j.siteName ? <Text style={[s.muted, { marginTop: 2 }]}>{j.siteName}</Text> : null}
-              </Pressable>
+              <JobCard key={j.id} job={j} onPress={() => openJob(j)} />
             ))}
-            <Pressable onPress={() => router.push("/jobs")} hitSlop={8}>
-              <Text style={{ color: C.link, fontWeight: "600", fontSize: 16 }}>See all jobs ›</Text>
-            </Pressable>
           </View>
         ) : null}
       </ScrollView>
@@ -167,34 +167,35 @@ export default function Home() {
   );
 }
 
-function BigAction(props: { label: string; sub: string; onPress: () => void; primary?: boolean }) {
+function BigAction(props: { icon: IconName; label: string; sub: string; onPress: () => void; primary?: boolean }) {
+  const fg = props.primary ? "#fff" : C.text;
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={props.label}
       onPress={props.onPress}
-      style={({ pressed }) => ({
-        flex: 1,
-        minHeight: 96,
-        borderRadius: 14,
-        padding: 16,
-        justifyContent: "center",
-        backgroundColor: props.primary ? C.brand : C.card,
-        borderWidth: props.primary ? 0 : 1,
-        borderColor: C.line,
-        opacity: pressed ? 0.8 : 1,
-      })}
+      style={({ pressed }) => [
+        props.primary ? { backgroundColor: C.brand, boxShadow: "0 8px 20px rgba(212,14,59,0.32)" } : s.card,
+        { flex: 1, minHeight: 118, borderRadius: R.lg + 2, padding: 16, justifyContent: "space-between", overflow: "hidden", transform: [{ scale: pressed ? 0.98 : 1 }] },
+      ]}
     >
-      <Text style={{ fontSize: 20, fontWeight: "700", color: props.primary ? "#fff" : C.ink }}>{props.label}</Text>
-      <Text style={{ marginTop: 4, color: props.primary ? "#ffe3ea" : C.muted }}>{props.sub}</Text>
+      {props.primary ? <BrandGradient /> : null}
+      <IconBubble name={props.icon} color={props.primary ? "#fff" : C.brand} bg={props.primary ? "rgba(255,255,255,0.2)" : C.brandSoft} size={40} />
+      <View style={{ marginTop: 12 }}>
+        <Text style={{ fontSize: 17.5, fontWeight: "700", color: fg }}>{props.label}</Text>
+        <Text style={{ marginTop: 2, fontSize: 13, color: props.primary ? "rgba(255,255,255,0.82)" : C.muted }}>{props.sub}</Text>
+      </View>
     </Pressable>
   );
 }
 
 function Stat(props: { label: string; value: number; tone?: string }) {
   return (
-    <View style={[s.card, { flex: 1, paddingVertical: 12 }]}>
-      <Text style={{ fontSize: 24, fontWeight: "700", color: props.tone ?? C.ink }}>{props.value}</Text>
-      <Text style={[s.muted, { marginTop: 2, fontSize: 13 }]}>{props.label}</Text>
+    <View style={[s.card, { flex: 1, paddingVertical: 12, paddingHorizontal: 12 }]}>
+      <Text style={{ fontSize: 26, fontWeight: "800", color: props.tone ?? C.text, letterSpacing: -0.5 }}>{props.value}</Text>
+      <Text style={{ marginTop: 1, fontSize: 12, fontWeight: "600", color: C.muted }} numberOfLines={1} adjustsFontSizeToFit>
+        {props.label}
+      </Text>
     </View>
   );
 }

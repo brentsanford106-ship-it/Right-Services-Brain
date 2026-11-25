@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, StyleSheet } from "react-native";
-import { Logo } from "./ui";
+import { BRAND, Logo } from "./ui";
 
 let alreadyShown = false; // once per app launch (cold start), not when coming back from the background
 
@@ -14,6 +14,7 @@ export function Intro() {
   const opacity = useRef(new Animated.Value(1)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.82)).current;
+  const line = useRef(new Animated.Value(0)).current; // red line that sweeps out under the logo
 
   useEffect(() => {
     if (!visible) return;
@@ -32,14 +33,14 @@ export function Intro() {
             Animated.timing(logoOpacity, { toValue: 1, duration: 450, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
             Animated.timing(scale, { toValue: 1, duration: 550, easing: Easing.out(Easing.back(1.6)), useNativeDriver: true }),
           ]),
-          Animated.delay(350),
+          Animated.timing(line, { toValue: 1, duration: 350, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
           Animated.timing(opacity, { toValue: 0, duration: 400, easing: Easing.in(Easing.quad), useNativeDriver: true }),
         ]).start(() => setVisible(false));
       });
     return () => {
       cancelled = true;
     };
-  }, [visible, logoOpacity, opacity, scale]);
+  }, [visible, logoOpacity, opacity, scale, line]);
 
   if (!visible) return null;
   return (
@@ -47,6 +48,7 @@ export function Intro() {
       <Animated.View style={{ opacity: logoOpacity, transform: [{ scale }] }}>
         <Logo height={96} />
       </Animated.View>
+      <Animated.View style={{ marginTop: 18, width: 140, height: 4, borderRadius: 2, backgroundColor: BRAND.colors.primary, transform: [{ scaleX: line }] }} />
     </Animated.View>
   );
 }

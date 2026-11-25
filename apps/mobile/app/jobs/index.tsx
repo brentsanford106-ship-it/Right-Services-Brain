@@ -3,7 +3,8 @@ import { FlatList, Pressable, RefreshControl, Text, TextInput, View } from "reac
 import { Stack, router, useFocusEffect } from "expo-router";
 import { NetworkError } from "@rsb/photo-sync";
 import { useApp, useQueueVersion, useSyncStatus, type Job } from "../../src/state";
-import { C, DevBanner, Empty, StatusPill, s } from "../../src/ui";
+import { BrandGradient, C, DevBanner, Empty, HeaderIcon, Icon, R, s } from "../../src/ui";
+import { JobCard } from "../../src/JobCard";
 
 function matches(j: Job, q: string): boolean {
   const n = q.trim().toLowerCase();
@@ -63,73 +64,82 @@ export default function Jobs() {
         : `${counts.waiting} photo${counts.waiting > 1 ? "s" : ""} waiting to upload${app.online ? "" : " (offline)"}`
       : "All photos uploaded";
 
+  const syncTone = counts.needsAttention
+    ? { fg: C.flag, bg: C.flagSoft, icon: "alert" as const }
+    : counts.waiting
+      ? { fg: C.warn, bg: C.warnSoft, icon: "cloudUp" as const }
+      : { fg: C.ok, bg: C.okSoft, icon: "cloudCheck" as const };
+
   return (
     <View style={s.screen}>
       <Stack.Screen
         options={{
           title: "Jobs",
-          headerRight: () => (
-            <Pressable onPress={() => router.push("/settings")} hitSlop={12}>
-              <Text style={{ color: C.link, fontSize: 16 }}>Settings</Text>
-            </Pressable>
-          ),
+          headerRight: () => <HeaderIcon name="settings" label="Settings" onPress={() => router.push("/settings")} />,
         }}
       />
       <DevBanner />
-      <Pressable
-        onPress={() => router.push("/sync")}
-        style={{ backgroundColor: counts.needsAttention ? C.flagSoft : counts.waiting ? C.warnSoft : C.okSoft, padding: 12 }}
-      >
-        <Text style={{ fontWeight: "600", color: counts.needsAttention ? C.flag : counts.waiting ? C.warn : C.ok }}>
-          {syncText} ›
-        </Text>
-      </Pressable>
-      <View style={{ padding: 16, paddingBottom: 8 }}>
-        {app.session?.orgName ? <Text style={[s.muted, { marginBottom: 8 }]}>{app.session.orgName}</Text> : null}
-        <TextInput
-          style={s.input}
-          value={q}
-          onChangeText={setQ}
-          placeholder="Search job number or name" placeholderTextColor={C.muted}
-          autoCorrect={false}
-          clearButtonMode="while-editing"
-        />
-        {note ? <Text style={[s.muted, { marginTop: 8 }]}>{note}</Text> : null}
+      <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6, gap: 10 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: C.fill, borderRadius: R.md, paddingHorizontal: 12 }}>
+          <Icon name="search" size={18} color={C.muted} />
+          <TextInput
+            style={{ flex: 1, minHeight: 44, fontSize: 16, color: C.text }}
+            value={q}
+            onChangeText={setQ}
+            placeholder="Search job number or name" placeholderTextColor={C.muted}
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+            accessibilityLabel="Search jobs"
+          />
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push("/sync")}
+          style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: syncTone.bg, borderRadius: R.md, paddingHorizontal: 12, paddingVertical: 10, opacity: pressed ? 0.7 : 1 })}
+        >
+          <Icon name={syncTone.icon} size={18} color={syncTone.fg} />
+          <Text style={{ flex: 1, fontWeight: "700", color: syncTone.fg }}>{syncText}</Text>
+          <Icon name="chevronRight" size={16} color={syncTone.fg} />
+        </Pressable>
+        {note ? <Text style={s.muted}>{note}</Text> : null}
       </View>
       <FlatList
         data={shown}
         keyExtractor={(j) => j.id}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: 110, gap: 10 }}
         ListEmptyComponent={
-          loading ? undefined : <Empty title={q ? "No matching jobs" : "No jobs yet"} body={q ? "Try a different job number or name." : app.can("jobs.manage") ? "Tap “New job” to add one." : "Ask a manager to assign you to a job."} />
+          loading ? undefined : <Empty icon={q ? "search" : "briefcase"} title={q ? "No matching jobs" : "No jobs yet"} body={q ? "Try a different job number or name." : app.can("jobs.manage") ? "Tap “New job” to add one." : "Ask a manager to assign you to a job."} />
         }
-        renderItem={({ item }) => {
-          const pending = pendingByJob.get(item.id) ?? 0;
-          return (
-            <Pressable
-              onPress={() => router.push({ pathname: "/jobs/[jobId]", params: { jobId: item.id, jobNumber: item.jobNumber, title: item.title } })}
-              style={({ pressed }) => [s.card, { marginBottom: 10, opacity: pressed ? 0.7 : 1 }]}
-            >
-              <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                <Text style={{ fontSize: 17, fontWeight: "700", color: C.text }}>{item.jobNumber}</Text>
-                {pending ? <Text style={{ color: C.warn, fontWeight: "600" }}>{pending} to upload</Text> : null}
-              </View>
-              <Text style={{ fontSize: 15, color: C.text, marginTop: 2 }}>{item.title}</Text>
-              {item.siteName ? <Text style={[s.muted, { marginTop: 2 }]}>{item.siteName}</Text> : null}
-              <View style={{ marginTop: 8 }}>
-                <StatusPill status={item.status} />
-              </View>
-            </Pressable>
-          );
-        }}
+        renderItem={({ item }) => (
+          <JobCard
+            job={item}
+            pending={pendingByJob.get(item.id) ?? 0}
+            onPress={() => router.push({ pathname: "/jobs/[jobId]", params: { jobId: item.id, jobNumber: item.jobNumber, title: item.title } })}
+          />
+        )}
       />
       {app.can("jobs.manage") ? (
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="New job"
           onPress={() => router.push("/jobs/edit")}
-          style={{ position: "absolute", right: 20, bottom: 36, backgroundColor: C.brand, borderRadius: 28, paddingHorizontal: 22, paddingVertical: 16 }}
+          style={({ pressed }) => ({
+            position: "absolute",
+            right: 20,
+            bottom: 36,
+            borderRadius: R.pill,
+            overflow: "hidden",
+            backgroundColor: C.brand,
+            boxShadow: "0 10px 24px rgba(212,14,59,0.4)",
+            transform: [{ scale: pressed ? 0.96 : 1 }],
+          })}
         >
-          <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>+ New job</Text>
+          <BrandGradient />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 22, paddingVertical: 15 }}>
+            <Icon name="plus" size={20} color="#fff" strokeWidth={2.5} />
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>New job</Text>
+          </View>
         </Pressable>
       ) : null}
     </View>

@@ -6,16 +6,16 @@ import { useApp, useQueueVersion, useSyncStatus, type Job } from "../../../src/s
 import { applyFilter, mergeGallery, LocalImage, PersonBadge, ServerImage, type Filter, type GalleryItem, type ServerPhoto } from "../../../src/photos";
 import { confirmDelete, sharePhotos } from "../../../src/photoActions";
 import { importFromLibrary } from "../../../src/importPhotos";
-import { C, Chip, DevBanner, Empty, FlagBadge, JOB_STATUSES, StatusPill, SyncPill, s } from "../../../src/ui";
+import { BrandGradient, C, Chip, DevBanner, Empty, FlagBadge, Icon, JOB_STATUSES, R, StatusPill, SyncPill, s } from "../../../src/ui";
 
 const FILTERS: { value: Filter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "before", label: "Before" },
   { value: "during", label: "During" },
   { value: "after", label: "After" },
-  { value: "flagged", label: "⚑ Flagged" },
-  { value: "comments", label: "💬 Comments" },
-  { value: "issues", label: "🔧 To fix" },
+  { value: "flagged", label: "Flagged" },
+  { value: "comments", label: "Comments" },
+  { value: "issues", label: "To fix" },
 ];
 
 export default function JobGallery() {
@@ -172,20 +172,26 @@ export default function JobGallery() {
       <Stack.Screen
         options={{
           title: jobNumber ?? "Photos",
+          // Dark top bar that runs into the dark job band below it.
+          headerStyle: { backgroundColor: C.header },
+          headerTintColor: "#fff",
+          headerTitleStyle: { color: "#fff" },
+          headerShadowVisible: false,
+          headerUserInterfaceStyle: "dark",
           headerRight: () => (
             <View style={{ flexDirection: "row", gap: 18, alignItems: "center" }}>
               {selecting ? (
                 <Pressable hitSlop={12} onPress={() => setSelected(allShownSelected ? new Set() : new Set(items.map((i) => i.key)))}>
-                  <Text style={{ color: C.link, fontSize: 16 }}>{allShownSelected ? "Deselect All" : "Select All"}</Text>
+                  <Text style={{ color: "#fff", fontSize: 16 }}>{allShownSelected ? "Deselect All" : "Select All"}</Text>
                 </Pressable>
               ) : app.can("jobs.manage") ? (
                 <Pressable hitSlop={12} onPress={() => router.push({ pathname: "/jobs/edit", params: { jobId } })}>
-                  <Text style={{ color: C.link, fontSize: 16 }}>Edit job</Text>
+                  <Text style={{ color: "#fff", fontSize: 16 }}>Edit job</Text>
                 </Pressable>
               ) : null}
               {all.length ? (
                 <Pressable hitSlop={12} onPress={() => (selecting ? stopSelecting() : startSelecting())}>
-                  <Text style={{ color: C.link, fontSize: 16, fontWeight: selecting ? "700" : "400" }}>{selecting ? "Cancel" : "Select"}</Text>
+                  <Text style={{ color: "#fff", fontSize: 16, fontWeight: selecting ? "700" : "400" }}>{selecting ? "Cancel" : "Select"}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -193,42 +199,48 @@ export default function JobGallery() {
         }}
       />
       <DevBanner />
-      <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
-        {title || job ? <Text style={{ fontSize: 16, color: C.text, fontWeight: "600" }}>{job?.title ?? title}</Text> : null}
-        {job ? (
-          <View style={{ marginTop: 6 }}>
-            <StatusPill status={job.status} onPress={app.can("jobs.manage") ? changeStatus : undefined} />
+      {/* Dark job band: name, status, photo count, and links to Issues / Recently Deleted. */}
+      <View style={{ backgroundColor: C.header, paddingHorizontal: 18, paddingTop: 6, paddingBottom: 16 }}>
+        <Text style={{ fontSize: 12, fontWeight: "800", color: "#ff7d96", letterSpacing: 0.8 }}>{job?.jobNumber ?? jobNumber}</Text>
+        {title || job ? (
+          <Text style={{ fontSize: 23, color: "#fff", fontWeight: "800", letterSpacing: -0.4, marginTop: 2 }} numberOfLines={2}>
+            {job?.title ?? title}
+          </Text>
+        ) : null}
+        {job?.siteName ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginTop: 3 }}>
+            <Icon name="pin" size={13} color="rgba(255,255,255,0.65)" />
+            <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13.5, flexShrink: 1 }} numberOfLines={1}>
+              {job.siteName}
+            </Text>
           </View>
         ) : null}
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
-          <Text style={[s.muted, { flexShrink: 1 }]}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+          {job ? <StatusPill status={job.status} onPress={app.can("jobs.manage") ? changeStatus : undefined} /> : null}
+          <Text style={{ color: "rgba(255,255,255,0.75)", fontSize: 13.5, flexShrink: 1 }}>
             {all.length} photo{all.length === 1 ? "" : "s"}
             {waiting ? ` · ${waiting} waiting to upload` : ""}
             {attention ? ` · ${attention} need attention` : ""}
           </Text>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Sort: ${SORT_LABELS[sort]}`} hitSlop={10} onPress={chooseSort}>
-            <Text style={{ color: C.link, fontWeight: "600" }}>{SORT_LABELS[sort]} ▾</Text>
-          </Pressable>
         </View>
-        {note ? <Text style={[s.muted, { marginTop: 6 }]}>{note}</Text> : null}
-        <Pressable
-          accessibilityRole="button"
-          hitSlop={8}
-          style={{ marginTop: 6, alignSelf: "flex-start" }}
-          onPress={() => router.push({ pathname: "/issues", params: { jobId, jobNumber: job?.jobNumber ?? jobNumber ?? "" } })}
-        >
-          <Text style={{ color: C.link, fontWeight: "600" }}>🔧  Issues{openIssues ? ` (${openIssues} to fix)` : ""} ›</Text>
-        </Pressable>
-        {deletedCount ? (
-          <Pressable
-            accessibilityRole="button"
-            hitSlop={8}
-            style={{ marginTop: 6, alignSelf: "flex-start" }}
-            onPress={() => router.push({ pathname: "/jobs/[jobId]/deleted", params: { jobId, jobNumber: job?.jobNumber ?? jobNumber ?? "" } })}
-          >
-            <Text style={{ color: C.link, fontWeight: "600" }}>🗑  Recently Deleted ({deletedCount}) ›</Text>
-          </Pressable>
-        ) : null}
+        {note ? <Text style={{ color: "rgba(255,255,255,0.7)", marginTop: 8, fontSize: 13 }}>{note}</Text> : null}
+        <View style={{ flexDirection: "row", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+          <BandLink
+            icon="wrench"
+            label={`Issues${openIssues ? ` · ${openIssues} to fix` : ""}`}
+            highlight={openIssues > 0}
+            onPress={() => router.push({ pathname: "/issues", params: { jobId, jobNumber: job?.jobNumber ?? jobNumber ?? "" } })}
+          />
+          {deletedCount ? (
+            <BandLink
+              icon="trash"
+              label={`Recently Deleted · ${deletedCount}`}
+              onPress={() => router.push({ pathname: "/jobs/[jobId]/deleted", params: { jobId, jobNumber: job?.jobNumber ?? jobNumber ?? "" } })}
+            />
+          ) : null}
+          <View style={{ flex: 1 }} />
+          <BandLink icon="sort" label={SORT_LABELS[sort]} onPress={chooseSort} accessibilityLabel={`Sort: ${SORT_LABELS[sort]}`} />
+        </View>
       </View>
       {/* flexShrink 0: with many photos the list below used to squeeze this row and cut the labels off. */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ padding: 12, paddingHorizontal: 16 }}>
@@ -258,7 +270,7 @@ export default function JobGallery() {
         keyExtractor={(i) => i.key}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void load()} />}
         contentContainerStyle={{ padding: 4, paddingBottom: 120 }}
-        ListEmptyComponent={loading ? undefined : <Empty title={filter === "all" && people.size === 0 ? "No photos yet" : "No photos match this filter"} body={filter === "all" && people.size === 0 ? "Tap “Take Photos” to start." : undefined} />}
+        ListEmptyComponent={loading ? undefined : <Empty icon="camera" title={filter === "all" && people.size === 0 ? "No photos yet" : "No photos match this filter"} body={filter === "all" && people.size === 0 ? "Tap “Take Photos” to start." : undefined} />}
         renderItem={({ item }) => (
           <Pressable
             onPress={() => (selecting ? toggle(item.key) : open(item))}
@@ -267,11 +279,11 @@ export default function JobGallery() {
             accessibilityLabel={`${item.stage} photo, taken by ${item.personKey === "me" ? "you" : item.personName ?? "unknown"}${item.flagged ? ", flagged" : ""}${item.server?.commentCount ? `, ${item.server.commentCount} comments` : ""}${item.server?.openIssueCount ? `, ${item.server.openIssueCount} to fix` : ""}${selecting ? (selected.has(item.key) ? ", selected" : ", not selected") : ""}`}
           >
             {item.local && !item.local.remoteOnly ? (
-              <LocalImage localId={item.local.localId} which="thumbnail" style={{ width: size, height: size, borderRadius: 6 }} />
+              <LocalImage localId={item.local.localId} which="thumbnail" style={{ width: size, height: size, borderRadius: 8 }} />
             ) : item.server?.hasPreview ? (
-              <ServerImage photoId={item.server.id} style={{ width: size, height: size, borderRadius: 6 }} thumb />
+              <ServerImage photoId={item.server.id} style={{ width: size, height: size, borderRadius: 8 }} thumb />
             ) : (
-              <View style={{ width: size, height: size, borderRadius: 6, backgroundColor: C.line, alignItems: "center", justifyContent: "center" }}>
+              <View style={{ width: size, height: size, borderRadius: 8, backgroundColor: C.line, alignItems: "center", justifyContent: "center" }}>
                 <Text style={s.muted}>No picture</Text>
               </View>
             )}
@@ -283,13 +295,15 @@ export default function JobGallery() {
             {((item.server?.commentCount ?? 0) > 0 || (item.server?.openIssueCount ?? 0) > 0) && !selecting ? (
               <View pointerEvents="none" style={{ position: "absolute", top: 4, left: 4, flexDirection: "row", gap: 3 }}>
                 {(item.server?.openIssueCount ?? 0) > 0 ? (
-                  <View style={{ backgroundColor: "#b45309", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
-                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>🔧 {item.server?.openIssueCount}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#b45309", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2 }}>
+                    <Icon name="wrench" size={10} color="#fff" strokeWidth={2.6} />
+                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>{item.server?.openIssueCount}</Text>
                   </View>
                 ) : null}
                 {(item.server?.commentCount ?? 0) > 0 ? (
-                  <View style={{ backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 }}>
-                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>💬 {item.server?.commentCount}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(0,0,0,0.65)", borderRadius: 999, paddingHorizontal: 6, paddingVertical: 2 }}>
+                    <Icon name="message" size={10} color="#fff" strokeWidth={2.6} />
+                    <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>{item.server?.commentCount}</Text>
                   </View>
                 ) : null}
               </View>
@@ -302,9 +316,9 @@ export default function JobGallery() {
                 <PersonBadge personKey={item.personKey} name={item.personName} personId={item.personId} avatarAt={item.personAvatarAt} />
               </View>
             ) : null}
-            {item.flagged ? <View pointerEvents="none" style={{ position: "absolute", inset: 0, borderWidth: 3, borderColor: C.flag, borderRadius: 6 }} /> : null}
+            {item.flagged ? <View pointerEvents="none" style={{ position: "absolute", inset: 0, borderWidth: 3, borderColor: C.flag, borderRadius: 8 }} /> : null}
             {selecting ? (
-              <View pointerEvents="none" style={{ position: "absolute", inset: 0, borderRadius: 6, backgroundColor: selected.has(item.key) ? "rgba(255,255,255,0.35)" : "transparent" }}>
+              <View pointerEvents="none" style={{ position: "absolute", inset: 0, borderRadius: 8, backgroundColor: selected.has(item.key) ? "rgba(255,255,255,0.35)" : "transparent" }}>
                 <View
                   style={{
                     position: "absolute",
@@ -360,9 +374,20 @@ export default function JobGallery() {
           <Pressable
             accessibilityRole="button"
             onPress={() => router.push({ pathname: "/jobs/[jobId]/camera", params: { jobId, jobNumber: jobNumber ?? "" } })}
-            style={({ pressed }) => ({ flex: 1, backgroundColor: C.brand, borderRadius: 14, paddingVertical: 18, alignItems: "center", opacity: pressed ? 0.8 : 1 })}
+            style={({ pressed }) => ({
+              flex: 1,
+              backgroundColor: C.brand,
+              borderRadius: R.lg,
+              overflow: "hidden",
+              boxShadow: "0 10px 24px rgba(212,14,59,0.38)",
+              transform: [{ scale: pressed ? 0.98 : 1 }],
+            })}
           >
-            <Text style={{ color: "#fff", fontWeight: "800", fontSize: 18 }}>📷  Take Photos</Text>
+            <BrandGradient />
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, paddingVertical: 18 }}>
+              <Icon name="camera" size={22} color="#fff" />
+              <Text style={{ color: "#fff", fontWeight: "800", fontSize: 18 }}>Take Photos</Text>
+            </View>
           </Pressable>
           {app.can("photos.import") ? (
             <Pressable
@@ -370,13 +395,39 @@ export default function JobGallery() {
               accessibilityLabel="Add photos from your photo library"
               disabled={importing}
               onPress={addFromLibrary}
-              style={({ pressed }) => ({ backgroundColor: C.card, borderWidth: 1, borderColor: C.line, borderRadius: 14, paddingVertical: 18, paddingHorizontal: 16, alignItems: "center", justifyContent: "center", opacity: pressed || importing ? 0.6 : 1 })}
+              style={({ pressed }) => [s.card, { borderRadius: R.lg, paddingVertical: 0, paddingHorizontal: 16, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center", opacity: pressed || importing ? 0.6 : 1 }]}
             >
-              <Text style={{ color: C.text, fontWeight: "700", fontSize: 15 }}>{importing ? "Adding…" : "🖼  Library"}</Text>
+              <Icon name="image" size={20} color={C.text} />
+              <Text style={{ color: C.text, fontWeight: "700", fontSize: 15 }}>{importing ? "Adding…" : "Library"}</Text>
             </Pressable>
           ) : null}
         </View>
       )}
     </View>
+  );
+}
+
+/** Small see-through button on the dark job band. */
+function BandLink(props: { icon: "wrench" | "trash" | "sort"; label: string; onPress: () => void; highlight?: boolean; accessibilityLabel?: string }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={props.accessibilityLabel ?? props.label}
+      hitSlop={6}
+      onPress={props.onPress}
+      style={({ pressed }) => ({
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        paddingHorizontal: 11,
+        paddingVertical: 7,
+        borderRadius: R.pill,
+        backgroundColor: props.highlight ? "#b45309" : "rgba(255,255,255,0.12)",
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <Icon name={props.icon} size={14} color="#fff" />
+      <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13.5 }}>{props.label}</Text>
+    </Pressable>
   );
 }
