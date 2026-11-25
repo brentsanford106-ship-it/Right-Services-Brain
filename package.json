@@ -1,0 +1,28 @@
+{
+  "name": "right-services-brain",
+  "private": true,
+  "description": "Security-first, multi-tenant business management platform (Phase 1 foundation).",
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.12 <25"
+  },
+  "scripts": {
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "pnpm --filter @rsb/db migrate",
+    "db:seed": "pnpm --filter @rsb/db seed",
+    "db:setup-company": "pnpm --filter @rsb/db setup-company",
+    "db:reset": "pnpm --filter @rsb/db reset",
+    "dev:api": "pnpm --filter @rsb/api dev",
+    "dev:api:phone": "pnpm --filter @rsb/api dev:lan",
+    "dev:web": "pnpm --filter @rsb/web dev",
+    "dev:mobile": "pnpm --filter @rsb/mobile start",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

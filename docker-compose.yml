@@ -1,0 +1,21 @@
+# Local development only. Never point this at real company data.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: rsb-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-rsb_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Set POSTGRES_ADMIN_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-rsb_dev}
+    # Bind to localhost only so the database is not reachable from the network.
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - rsb-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-rsb_admin} -d ${POSTGRES_DB:-rsb_dev}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  rsb-pgdata:

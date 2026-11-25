@@ -1,0 +1,321 @@
+import React, { useMemo, useRef, useState } from "react";
+import { Alert, KeyboardAvoidingView, PanResponder, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from "react-native";
+import { Stack, router, useLocalSearchParams } from "expo-router";
+import * as Crypto from "expo-crypto";
+import {
+  COLOR_HEX, LABEL_MAX, MARKUP_COLORS, NetworkError, ApiError, clampPoint, clampView, describeMark, distance, hitTest, markNames, midpoint, photoRect, pinchTo, shapeProblem, thinPen, tooSmall, touchToPhoto,
+  type MarkupColor, type MarkupKind, type MarkupShape, type MarkupSize, type Pinch, type Point, type View as ZoomView,
+} from "@rsb/photo-sync";
+import { useApp } from "../../src/state";
+import { ServerImage } from "../../src/photos";
+import { MarksLayer, fitRect, useMarks } from "../../src/markup";
+import { Button, C, s } from "../../src/ui";
+
+type Tool = MarkupKind | "erase";
+const TOOLS: { value: Tool; label: string; name: string }[] = [
+  { value: "circle", label: "◯", name: "Circle" },
+  { value: "arrow", label: "➜", name: "Arrow" },
+  { value: "pen", label: "✎", name: "Pen" },
+  { value: "rect", label: "▭", name: "Box" },
+  { value: "text", label: "T", name: "Text" },
+  { value: "pin", label: "📍", name: "Pin" },
+  { value: "erase", label: "⌫", name: "Remove a mark" },
+];
+
+/** One mark on the drawing screen: saved on the server (savedId), or waiting on this phone for signal (queuedId). */
+type Item = MarkupShape & { key: string; savedId: string | null; queuedId: string | null; canRemove: boolean };
+type ChangesAnswer = { items: { id: string }[]; added?: { clientRef: string; id: string }[] };
+
+/**
+ * Drawing on one photo (owners and managers). Each mark is saved as soon as it's drawn, then a note box opens:
+ * the note becomes a comment about that mark (shows in Comments; whoever took the photo gets an alert).
+ * With no signal, marks and notes wait on the phone (encrypted) and are sent automatically later.
+ * The photo itself never changes.
+ */
+export default function Draw() {
+  const app = useApp();
+  const { photoId, jobId, w: ws, h: hs } = useLocalSearchParams<{ photoId: string; jobId?: string; w: string; h: string }>();
+  const W = Number(ws) || 1000;
+  const H = Number(hs) || 750;
+  const orgId = app.session!.orgId;
+  const { marks: saved, loaded, cached, offline } = useMarks(photoId);
+  const [items, setItems] = useState<Item[] | null>(null);
+  // Start once the marks are here: the server's, or with no signal the copy saved on this phone (only once).
+  if (!items && (loaded || cached)) {
+    setItems(saved.map((m) => ({ kind: m.kind, color: m.color, size: m.size, points: m.points, label: m.label ?? null, key: m.id, savedId: m.id, queuedId: null, canRemove: m.canRemove })));
+  }
+  const [tool, setTool] = useState<Tool>("circle");
+  const [color, setColor] = useState<MarkupColor>("red");
+  const [size, setSize] = useState<MarkupSize>(2);
+  const [text, setText] = useState("");
+  // Pinch with two fingers to zoom in and out and to move around; one finger draws.
+  const [view, setView] = useState<ZoomView>({ zoom: 1, x: 0, y: 0 });
+  const [live, setLive] = useState<MarkupShape | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [mine, setMine] = useState<string[]>([]); // keys drawn this time, for Undo
+  const [noteFor, setNoteFor] = useState<{ key: string; name: string } | null>(null);
+  const [note, setNote] = useState("");
+  const { width, height } = useWindowDimensions();
+  // The photo gets all the room above the tools (measured), as big as it fits without cropping.
+  const [area, setArea] = useState({ w: width, h: height * 0.55 });
+  const box = fitRect(area.w, area.h, W, H);
+  const base = { w: box.w, h: box.h };
+  const rect = photoRect(view, base, area);
+  const dispW = rect.w;
+  const dispH = rect.h;
+  const origin = useRef<[number, number]>([0, 0]); // the photo area's place on the screen
+  const areaRef = useRef<React.ComponentRef<typeof View>>(null);
+
+  const changesPath = `/v1/orgs/${orgId}/photos/${photoId}/markups/changes`;
+  const patch = (key: string, ch: Partial<Item>) => setItems((v) => (v ?? []).map((m) => (m.key === key ? { ...m, ...ch } : m)));
+  const drop = (key: string) => {
+    setItems((v) => (v ?? []).filter((m) => m.key !== key));
+    setMine((v) => v.filter((k) => k !== key));
+    setNoteFor((n) => (n?.key === key ? null : n));
+  };
+  const queue = (body: { add: unknown[]; remove: string[] }, label: string) =>
+    app.actions.add({ orgId, jobId: jobId!, photoId, kind: "markup_changes", body, label });
+
+  const saveMark = async (shape: MarkupShape) => {
+    const key = Crypto.randomUUID();
+    const item: Item = { ...shape, label: shape.label ?? null, key, savedId: null, queuedId: null, canRemove: true };
+    const all = [...(ref.current.items ?? []), item];
+    setItems(all);
+    setMine((v) => [...v, key]);
+    const name = markNames(all)[all.length - 1] ?? describeMark(shape);
+    const body = { add: [{ kind: shape.kind, color: shape.color, size: shape.size, points: shape.points, label: shape.label ?? null, clientRef: key }], remove: [] as string[] };
+    setBusy(true);
+    try {
+      const r = await app.api.post<ChangesAnswer>(changesPath, body);
+      patch(key, { savedId: r.added?.find((a) => a.clientRef === key)?.id ?? key });
+      setNote("");
+      setNoteFor({ key, name });
+    } catch (e) {
+      if (e instanceof NetworkError && jobId) {
+        try {
+          const a = await queue(body, "Drawing (1 new)");
+          patch(key, { queuedId: a.localId });
+          setNote("");
+          setNoteFor({ key, name });
+        } catch (err) {
+          drop(key);
+          Alert.alert("Drawing not saved", err instanceof Error ? err.message : "Please try again.");
+        }
+        return;
+      }
+      drop(key);
+      Alert.alert("Drawing not saved", e instanceof NetworkError ? "No connection. Try again when you have signal." : e instanceof ApiError ? e.message : "Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeMark = async (m: Item) => {
+    setBusy(true);
+    try {
+      if (m.queuedId) await app.actions.discard(m.queuedId);
+      else if (m.savedId) {
+        try {
+          await app.api.post<ChangesAnswer>(changesPath, { add: [], remove: [m.savedId] });
+        } catch (e) {
+          if (!(e instanceof NetworkError) || !jobId) throw e;
+          await queue({ add: [], remove: [m.savedId] }, "Drawing (1 removed)");
+        }
+      }
+      drop(m.key);
+    } catch (e) {
+      Alert.alert("Not removed", e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveNote = async () => {
+    const t = note.trim();
+    const m = items?.find((x) => x.key === noteFor?.key);
+    if (!t || !m || !noteFor) return;
+    setBusy(true);
+    try {
+      // A mark still waiting for signal has no id yet, so its note says which mark it's about in words.
+      const body = m.savedId ? t : `About the ${noteFor.name}: ${t}`;
+      if (jobId) {
+        await app.comments.add({ orgId, jobId, photoServerId: photoId, photoLocalId: null, body, mentionIds: [], markupId: m.savedId });
+        app.syncNow();
+      } else {
+        await app.api.post(`/v1/orgs/${orgId}/photos/${photoId}/comments`, { clientRef: Crypto.randomUUID(), body, mentionIds: [], parentId: null, markupId: m.savedId });
+      }
+      setNoteFor(null);
+      setNote("");
+    } catch (e) {
+      Alert.alert("Note not saved", e instanceof ApiError ? e.message : e instanceof Error ? e.message : "Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Latest values for the touch handler (it's made once).
+  const ref = useRef({ tool, color, size, text, dispW, dispH, items, live, busy, noteFor, saveMark, removeMark, view, base, area, pinch: null as Pinch | null });
+  Object.assign(ref.current, { tool, color, size, text, dispW, dispH, items, live: ref.current.live, busy, noteFor, saveMark, removeMark, view, base, area });
+
+  type Touch = { pageX: number; pageY: number };
+  const local = (t: Touch): [number, number] => [t.pageX - origin.current[0], t.pageY - origin.current[1]];
+  const at = (t: Touch): Point => clampPoint(touchToPhoto(...local(t), ref.current.view, ref.current.base, ref.current.area));
+  const startPinch = (a: Touch, b: Touch) => {
+    ref.current.live = null;
+    setLive(null);
+    ref.current.pinch = { start: ref.current.view, mid: midpoint(local(a), local(b)), dist: distance(local(a), local(b)) };
+  };
+  const commit = (shape: MarkupShape) => {
+    const problem = shapeProblem(shape);
+    if (problem) return Alert.alert("Can't add that", problem);
+    if (tooSmall(shape, ref.current.dispW, ref.current.dispH)) return;
+    void ref.current.saveMark(shape);
+  };
+
+  const pan = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => !!ref.current.items,
+    onMoveShouldSetPanResponder: () => !!ref.current.items,
+    onPanResponderTerminationRequest: () => false,
+    onPanResponderGrant: (e) => {
+      const touches = e.nativeEvent.touches;
+      ref.current.pinch = null;
+      if (touches.length >= 2) return startPinch(touches[0]!, touches[1]!);
+      if (ref.current.busy) return;
+      const { tool: t, color: c, size: sz, text: tx, items: list } = ref.current;
+      if (ref.current.noteFor) setNoteFor(null); // drawing again means "no note" for the last one
+      const p = at(e.nativeEvent);
+      if (t === "erase") {
+        if (!list) return;
+        const i = hitTest(list, p[0] * ref.current.dispW, p[1] * ref.current.dispH, ref.current.dispW, ref.current.dispH, 24);
+        const m = list[i];
+        if (!m) return;
+        if (!m.canRemove) return Alert.alert("Not yours", "You can only remove your own marks.");
+        void ref.current.removeMark(m);
+        return;
+      }
+      if (t === "text" || t === "pin") {
+        if (t === "text" && !tx.trim()) return Alert.alert("Type the text first", "Type the words in the box below, then tap the photo where they go.");
+        commit({ kind: t, color: c, size: sz, points: [p], label: tx.trim() || null });
+        if (t === "text") setText("");
+        return;
+      }
+      const shape: MarkupShape = { kind: t, color: c, size: sz, points: [p, p] };
+      ref.current.live = shape;
+      setLive(shape);
+    },
+    onPanResponderMove: (e) => {
+      const touches = e.nativeEvent.touches;
+      if (touches.length >= 2) {
+        // A second finger came down: it's a pinch, not a drawing.
+        if (!ref.current.pinch) return startPinch(touches[0]!, touches[1]!);
+        const a = local(touches[0]!);
+        const b = local(touches[1]!);
+        const v = pinchTo(ref.current.pinch, midpoint(a, b), distance(a, b), ref.current.base, ref.current.area);
+        ref.current.view = v;
+        setView(v);
+        return;
+      }
+      const l = ref.current.live;
+      if (!l || ref.current.pinch) return;
+      const p = at(e.nativeEvent);
+      const next: MarkupShape = l.kind === "pen" ? { ...l, points: [...l.points, p] } : { ...l, points: [l.points[0]!, p] };
+      ref.current.live = next;
+      setLive(next);
+    },
+    onPanResponderRelease: () => {
+      ref.current.pinch = null;
+      const l = ref.current.live;
+      ref.current.live = null;
+      setLive(null);
+      if (l) commit(l.kind === "pen" ? { ...l, points: thinPen(l.points, ref.current.dispW, ref.current.dispH) } : l);
+    },
+    onPanResponderTerminate: () => {
+      ref.current.pinch = null;
+      ref.current.live = null;
+      setLive(null);
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
+  const lastMine = items?.find((m) => m.key === mine[mine.length - 1]);
+  const waiting = (items ?? []).filter((m) => m.queuedId).length;
+
+  return (
+    <KeyboardAvoidingView style={[s.screen, { backgroundColor: "#000" }]} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={90}>
+      <Stack.Screen options={{ title: "Draw", headerLeft: () => <Pressable onPress={() => router.back()} hitSlop={10} disabled={busy}><Text style={{ color: C.brand, fontSize: 17 }}>Done</Text></Pressable> }} />
+      {!items ? (
+        <Text style={{ color: "#fff", padding: 16 }}>{offline ? "No signal, and this photo's drawings haven't been saved on this phone yet. Open the photo once with signal, then try again." : "Loading the drawing…"}</Text>
+      ) : null}
+      <View ref={areaRef} style={{ flex: 1, overflow: "hidden" }} {...pan.panHandlers} accessibilityLabel="Photo drawing area. One finger draws, pinch with two fingers to zoom."
+        onLayout={(e) => {
+          const { width: lw, height: lh } = e.nativeEvent.layout;
+          areaRef.current?.measureInWindow((x, y) => { origin.current = [x, y]; });
+          if (lw > 0 && lh > 0 && (Math.abs(lw - area.w) > 1 || Math.abs(lh - area.h) > 1)) {
+            const next = { w: lw, h: lh };
+            setArea(next);
+            const nb = fitRect(lw, lh, W, H);
+            setView((v) => clampView(v, { w: nb.w, h: nb.h }, next));
+          }
+        }}>
+        <View pointerEvents="none" style={{ position: "absolute", left: rect.left, top: rect.top, width: dispW, height: dispH }}>
+          <ServerImage photoId={photoId} style={{ width: dispW, height: dispH }} contain />
+          <MarksLayer marks={items ?? []} w={W} h={H} width={dispW} height={dispH} preview={live} highlight={noteFor ? (items ?? []).findIndex((m) => m.key === noteFor.key) : undefined} />
+        </View>
+        {view.zoom > 1.05 ? (
+          <Pressable onPress={() => setView({ zoom: 1, x: 0, y: 0 })} accessibilityRole="button" accessibilityLabel="Show the whole photo"
+            style={{ position: "absolute", right: 10, top: 10, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5 }}>
+            <Text style={{ color: "#fff", fontSize: 13 }}>{view.zoom.toFixed(1)}× · Fit</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      <ScrollView style={{ backgroundColor: C.bg, flexGrow: 0, flexShrink: 0, maxHeight: height * 0.5 }} contentContainerStyle={{ padding: 10, gap: 8 }} keyboardShouldPersistTaps="handled">
+        {noteFor ? (
+          <View style={{ gap: 8 }} accessibilityLabel={`Note for the ${noteFor.name}`}>
+            <Text style={{ fontSize: 17, fontWeight: "700", color: C.text }}>Note for the {noteFor.name}</Text>
+            <Text style={s.muted}>{items?.find((m) => m.key === noteFor.key)?.queuedId ? "Drawing saved on this phone. It will be sent when you have signal." : "Drawing saved."} Type what should be done here. It goes in Comments, and whoever took the photo gets an alert.</Text>
+            <TextInput style={[s.input, { minHeight: 80, textAlignVertical: "top" }]} multiline autoFocus maxLength={4000} value={note} onChangeText={setNote}
+              placeholder="What should be done here?" placeholderTextColor={C.muted} accessibilityLabel={`Note for the ${noteFor.name}`} />
+            <Button title="Add note" busy={busy} disabled={!note.trim()} onPress={() => void saveNote()} />
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Button title="No note" kind="secondary" style={{ flex: 1 }} disabled={busy} onPress={() => { setNoteFor(null); setNote(""); }} />
+              <Button title="Remove drawing" kind="secondary" style={{ flex: 1 }} disabled={busy} onPress={() => { const m = items?.find((x) => x.key === noteFor.key); if (m) void removeMark(m); }} />
+            </View>
+          </View>
+        ) : null}
+        {noteFor ? null : <>
+        {/* Tools, colors and sizes share one swipeable row, so the photo gets as much of the screen as possible. */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexShrink: 0 }} contentContainerStyle={{ gap: 6, alignItems: "center" }}>
+          {TOOLS.map((t) => (
+            <Pressable key={t.value} onPress={() => setTool(t.value)} accessibilityRole="button" accessibilityLabel={t.name} accessibilityState={{ selected: tool === t.value }}
+              style={{ width: 42, height: 42, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: tool === t.value ? C.ink : C.card, borderWidth: 1, borderColor: C.line }}>
+              <Text style={{ fontSize: 19, color: tool === t.value ? "#fff" : C.text }}>{t.label}</Text>
+            </Pressable>
+          ))}
+          <View style={{ width: 1, height: 30, backgroundColor: C.line, marginHorizontal: 4 }} />
+          {MARKUP_COLORS.map((c) => (
+            <Pressable key={c} onPress={() => setColor(c)} accessibilityRole="button" accessibilityLabel={c} accessibilityState={{ selected: color === c }}
+              style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: COLOR_HEX[c], borderWidth: color === c ? 3 : 1, borderColor: color === c ? C.brand : C.line }} />
+          ))}
+          <View style={{ width: 1, height: 30, backgroundColor: C.line, marginHorizontal: 4 }} />
+          {([1, 2, 3] as MarkupSize[]).map((z) => (
+            <Pressable key={z} onPress={() => setSize(z)} accessibilityRole="button" accessibilityLabel={["Thin", "Medium", "Thick"][z - 1]} accessibilityState={{ selected: size === z }}
+              style={{ width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: size === z ? C.brand : C.line }}>
+              <View style={{ width: 18, height: z * 2 + 1, backgroundColor: C.text, borderRadius: 2 }} />
+            </Pressable>
+          ))}
+        </ScrollView>
+        {tool === "text" || tool === "pin" ? (
+          <TextInput style={s.input} maxLength={LABEL_MAX} value={text} onChangeText={setText}
+            placeholder={tool === "text" ? "Type the words, then tap the photo" : "Optional pin label, then tap the photo"} placeholderTextColor={C.muted} />
+        ) : null}
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <Button title="↶ Undo" kind="secondary" style={{ flex: 1 }} disabled={!lastMine || busy} onPress={() => { if (lastMine) void removeMark(lastMine); }} />
+          <Button title="Done" busy={busy} style={{ flex: 1 }} onPress={() => router.back()} />
+        </View>
+        {waiting ? <Text style={s.muted}>{waiting} drawing{waiting === 1 ? "" : "s"} saved on this phone, sent when you have signal.</Text> : null}
+        </>}
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}

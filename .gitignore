@@ -17,6 +17,7 @@ Thumbs.db
 *.p8
 *.p12
 *.mobileprovision
-# Local data
+# Local data (including photos saved by the API while testing)
 .pgdata/
 .azurite/
+.data/
